@@ -286,10 +286,19 @@ public final class EnvironmentManager {
    }
 
    public static void addItemPickup(ItemPickup pickup) {
+      // Loot must never spawn while replaying the other peer's world event.
+      if (game.net.NetSession.isApplyingRemote()) {
+         return;
+      }
+
       itemPickups.add(pickup);
    }
 
    public static void addItemPickups(ArrayList<ItemPickup> pickups) {
+      if (game.net.NetSession.isApplyingRemote()) {
+         return;
+      }
+
       itemPickups.addAll(pickups);
    }
 

@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.manager.TextureManager;
 import game.render.ModelLoader;
@@ -15,9 +16,9 @@ public final class Rock extends ChunkElement {
 
    public Rock(Point pos) {
       this.position = pos.copy();
-      this.yRotation = (float)(Math.random() * 180.0);
-      this.scale = 0.8F + (float)(Math.random() * 1.2F);
-      this.brightness = (float)(Math.random() / 4.0 + 0.25);
+      this.yRotation = (float)(ChunkRandom.random() * 180.0);
+      this.scale = 0.8F + (float)(ChunkRandom.random() * 1.2F);
+      this.brightness = (float)(ChunkRandom.random() / 4.0 + 0.25);
    }
 
    public static void loadAssets() {

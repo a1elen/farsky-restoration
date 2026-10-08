@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.collision.AABB;
 import game.environment.EnvironmentManager;
@@ -22,9 +23,9 @@ public final class Vent extends ChunkElement {
       this.position = new Point();
       this.position.set(pos);
       this.emitPos = pos.plus(offsetX, 0.0F, offsetZ);
-      this.yRotation = (float)(Math.random() * 180.0);
-      this.scale = 14.0F + (float)(Math.random() * 2.0);
-      this.brightness = (float)(Math.random() / 4.0 + 0.25);
+      this.yRotation = (float)(ChunkRandom.random() * 180.0);
+      this.scale = 14.0F + (float)(ChunkRandom.random() * 2.0);
+      this.brightness = (float)(ChunkRandom.random() / 4.0 + 0.25);
    }
 
    public static void loadAssets() {
@@ -41,8 +42,8 @@ public final class Vent extends ChunkElement {
          for (int i = 0; i < 2; i++) {
             EnvironmentManager.addMovingParticle(
                new MovingParticle(
-                  this.emitPos.plus(new Point(Math.random() - 0.5, 10.0 + Math.random(), Math.random() - 0.5).scaled(1.0F)),
-                  new Point(Math.random() - 0.5, 0.0, Math.random() - 0.5).scaled(0.5F).plus(0.0F, 1.0F, 0.0F),
+                  this.emitPos.plus(new Point(ChunkRandom.random() - 0.5, 10.0 + ChunkRandom.random(), ChunkRandom.random() - 0.5).scaled(1.0F)),
+                  new Point(ChunkRandom.random() - 0.5, 0.0, ChunkRandom.random() - 0.5).scaled(0.5F).plus(0.0F, 1.0F, 0.0F),
                   40.0F,
                   2.0F
                )

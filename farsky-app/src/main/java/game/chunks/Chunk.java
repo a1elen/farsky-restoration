@@ -159,6 +159,14 @@ public final class Chunk {
       return this.soundLayer.harvestOre(this.x, this.z, segment, consume);
    }
 
+   public final void applyRemoteOreDeposit(Point localPos) {
+      this.soundLayer.applyRemoteOreHarvest(localPos);
+   }
+
+   public final void removeTreasureChest(int tileX, int tileZ) {
+      this.soundLayer.removeTreasureChestAt(tileX, tileZ);
+   }
+
    public final CollisionBox getCollisionBox() {
       AABB aabb = this.soundLayer.getStructureBoundingBox();
       return aabb != null ? new CollisionBox(aabb, new Point((float)this.x, 0.0F, (float)this.z), new Point()) : null;

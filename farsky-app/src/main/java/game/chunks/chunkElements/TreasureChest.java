@@ -4,6 +4,7 @@ import game.Main;
 import game.collision.AABB;
 import game.gui.InteractionHint;
 import game.gui.PlayerHud;
+import game.net.NetSession;
 import game.input.InputManager;
 import game.inventory.types.Inventory;
 import game.manager.GameScene;
@@ -59,6 +60,7 @@ public final class TreasureChest extends ChunkElement {
             SoundManager.playSound(SoundManager.sfxMoney, null, 1.0F, 0.4F);
             PlayerHud.showCoinBonus(coinCount);
             this.inventory = null;
+            NetSession.sendChestTaken(this.chunkX, this.chunkZ);
          }
       }
    }
@@ -84,5 +86,13 @@ public final class TreasureChest extends ChunkElement {
    @Override
    public final AABB getBoundingBox() {
       return this.interactionBounds;
+   }
+
+   public final int getTileX() {
+      return this.chunkX;
+   }
+
+   public final int getTileZ() {
+      return this.chunkZ;
    }
 }

@@ -1,6 +1,7 @@
 package game.seafloorBase;
 
 import game.collision.AABB;
+import game.net.NetSession;
 import game.seafloorBase.util.BlockType;
 import game.seafloorBase.util.Dir;
 import game.seafloorBase.util.Material;
@@ -18,6 +19,11 @@ public class Block implements Serializable {
    private Point offset;
    public transient boolean visited = false;
    private transient ArrayList<Element> pendingWalls;
+   // Network sync: grid position and owning octree, assigned by Octree.
+   private transient int gridX;
+   private transient int gridY;
+   private transient int gridZ;
+   private transient Octree owner;
 
    public Block(Point pos) {
       this.elmts = new ArrayList<>();
@@ -25,6 +31,20 @@ public class Block implements Serializable {
       pos.y *= 35.0F;
       pos.z *= 10.0F;
       this.offset = pos.copy();
+   }
+
+   /** Binds this block to its grid cell and owning octree so mutations can be reported for network sync. */
+   public final void setGridPosition(int x, int y, int z, Octree owner) {
+      this.gridX = x;
+      this.gridY = y;
+      this.gridZ = z;
+      this.owner = owner;
+   }
+
+   private void sendBlockEvent(int op, int param, int dir) {
+      if (this.owner != null && NetSession.shouldSendWorldEvents()) {
+         NetSession.sendBlockOp(this.owner.getBaseIndex(), this.gridX, this.gridY, this.gridZ, op, param, dir);
+      }
    }
 
    public final void build() {
@@ -39,16 +59,20 @@ public class Block implements Serializable {
 
          this.built = true;
       }
+
+      this.sendBlockEvent(NetSession.OP_BUILD, 0, 0);
    }
 
    public final void demolish() {
       this.elmts.clear();
       this.built = false;
+      this.sendBlockEvent(NetSession.OP_DEMOLISH, 0, 0);
    }
 
    public final void clearElements() {
       if (this.built) {
          this.elmts.clear();
+         this.sendBlockEvent(NetSession.OP_CLEAR, 0, 0);
       }
    }
 
@@ -107,6 +131,7 @@ public class Block implements Serializable {
 
          if (element != null && !dryRun) {
             this.elmts.add(element);
+            this.sendBlockEvent(NetSession.OP_ADD_ELEMENT, type.ordinal(), dir == null ? -1 : dir.ordinal());
          }
 
          return element != null;
@@ -124,6 +149,7 @@ public class Block implements Serializable {
 
       if (target != null && !dryRun) {
          target.setMaterial(mat);
+         this.sendBlockEvent(NetSession.OP_APPLY_MATERIAL, mat.ordinal(), 0);
       }
 
       return target != null;
@@ -422,6 +448,13 @@ public class Block implements Serializable {
 
    public final void removeElement(Element elmt) {
       this.removeElementAt(elmt.getBlockType(), elmt.getDir());
+      this.sendBlockEvent(NetSession.OP_REMOVE_ELEMENT, elmt.getBlockType().ordinal(), elmt.getDir() == null ? -1 : elmt.getDir().ordinal());
+   }
+
+   /** Removes an element of the given type and direction (used when replaying a remote peer's action). */
+   public final void removeElement(BlockType type, Dir dir) {
+      this.removeElementAt(type, dir);
+      this.sendBlockEvent(NetSession.OP_REMOVE_ELEMENT, type.ordinal(), dir == null ? -1 : dir.ordinal());
    }
 
    private void removeElementAt(BlockType type, Dir dir) {

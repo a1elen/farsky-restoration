@@ -28,6 +28,7 @@ public final class WorldGenerator {
 			break;
       }
 
+      world.setWorldSeed(SeedInput.getSeed());
       world.setRandLevelGenCliff(rng.nextFloat());
       world.setRandGenDunes(rng.nextFloat());
       world.setRandGenRock(rng.nextFloat());

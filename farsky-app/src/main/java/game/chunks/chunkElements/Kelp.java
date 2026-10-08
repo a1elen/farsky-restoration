@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.manager.TextureManager;
 import game.render.Vertex;
@@ -18,8 +19,8 @@ public final class Kelp extends ChunkElement {
    public Kelp(Point pos) {
       this.position = new Point(0.0F, 0.0F, 0.0F);
       this.position.set(pos);
-      this.angle = (float)(Math.random() * Math.PI * 2.0);
-      this.scale = 3.0F + (float)Math.random() * 3.0F;
+      this.angle = (float)(ChunkRandom.random() * Math.PI * 2.0);
+      this.scale = 3.0F + (float)ChunkRandom.random() * 3.0F;
    }
 
    @Override

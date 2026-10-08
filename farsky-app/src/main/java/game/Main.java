@@ -7,6 +7,7 @@ import game.gui.GuiRenderer;
 import game.gui.InteractionHint;
 import game.input.InputManager;
 import game.inventory.InventoryHud;
+import game.gui.menu.MultiplayerMenu;
 import game.manager.Achievements;
 import game.manager.GameState;
 import game.manager.Loading;
@@ -15,6 +16,7 @@ import game.manager.AssetLoader;
 import game.manager.GameScene;
 import game.manager.TextureManager;
 import game.map.MapRenderer;
+import game.net.NetSession;
 import game.manager.GameTime;
 import game.util.FontRenderer;
 import game.util.IconLoader;
@@ -36,6 +38,8 @@ public class Main {
    public static boolean isDebug = ManagementFactory.getRuntimeMXBean().getInputArguments().toString().indexOf("-agentlib:jdwp") > 0;
    public static final boolean isRelease = ManagementFactory.getRuntimeMXBean().getInputArguments().toString().indexOf("-agentlib:jdwp") <= 0;
    public static boolean exitRequested = false;
+   private static boolean autoHost = false;
+   private static String autoJoin = null;
    public static String VERSION = "FarSky v1.0";
    public static String dataPath = "";
    private static String logPath = "";
@@ -70,6 +74,14 @@ public class Main {
 
             if (parts[0].equals("-logPath") && parts.length > 1) {
                logPath = parts[1];
+            }
+
+            if (parts[0].equals("-mpHost")) {
+               autoHost = true;
+            }
+
+            if (parts[0].equals("-mpJoin") && parts.length > 1) {
+               autoJoin = parts[1];
             }
          }
       }
@@ -184,6 +196,7 @@ public class Main {
 
                GameTime.update(dt);
                SoundManager.update(dt);
+               NetSession.update(dt);
                if (hasStateChanged() && prevFrameState == GameState.INVENTORY) {
                   InventoryHud.deselectStorage();
                }
@@ -223,6 +236,14 @@ public class Main {
                      RenderManager.update(dt);
                      break;
                   case MAIN_MENU:
+                     if (autoHost) {
+                        autoHost = false;
+                        MultiplayerMenu.startHostSession();
+                     } else if (autoJoin != null) {
+                        NetSession.join(autoJoin);
+                        autoJoin = null;
+                     }
+
                      GameScene.tick(dt);
                      GuiRenderer.update(dt);
                      RenderManager.update(dt);

@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.collision.AABB;
 import game.render.ModelLoader;
@@ -18,9 +19,9 @@ public final class GiantAlgaLight extends ChunkElement {
    public GiantAlgaLight(Point pos) {
       this.position = new Point(0.0F, 0.0F, 0.0F);
       this.position.set(pos);
-      this.yRotation = (float)(Math.random() * 180.0);
-      this.scale = 15.0F + (float)(Math.random() * 20.0);
-      this.brightness = (int)((float)(Math.random() + 0.5) * 10.0F) / 10.0F;
+      this.yRotation = (float)(ChunkRandom.random() * 180.0);
+      this.scale = 15.0F + (float)(ChunkRandom.random() * 20.0);
+      this.brightness = (int)((float)(ChunkRandom.random() + 0.5) * 10.0F) / 10.0F;
    }
 
    public static void loadAssets() {

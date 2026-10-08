@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.manager.TextureManager;
 import game.render.Vertex;
@@ -18,8 +19,8 @@ public final class SeaBush extends ChunkElement {
    public SeaBush(Point pos) {
       this.position = new Point(0.0F, 0.0F, 0.0F);
       this.position.set(pos);
-      this.angle = (float)(Math.random() * Math.PI * 2.0);
-      this.scale = 6.0F + (float)Math.random() * 6.0F;
+      this.angle = (float)(ChunkRandom.random() * Math.PI * 2.0);
+      this.scale = 6.0F + (float)ChunkRandom.random() * 6.0F;
    }
 
    @Override

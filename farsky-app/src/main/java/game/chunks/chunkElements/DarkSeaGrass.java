@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.manager.TextureManager;
 import game.render.Vertex;
@@ -18,7 +19,7 @@ public final class DarkSeaGrass extends ChunkElement {
    public DarkSeaGrass(Point pos) {
       this.position = new Point(0.0F, 0.0F, 0.0F);
       this.position.set(pos);
-      this.angle = (float)(Math.random() * Math.PI * 2.0);
+      this.angle = (float)(ChunkRandom.random() * Math.PI * 2.0);
       leafSize = 2.0F;
    }
 

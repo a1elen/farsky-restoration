@@ -8,6 +8,7 @@ public final class MenuController {
    private static MainMenu mainMenu;
    private static PauseMenu pauseMenu;
    private static NewGameMenu newGameMenu;
+   private static MultiplayerMenu multiplayerMenu;
    private static OptionsMenu optionsMenu;
    private static LoadSaveMenu loadSaveMenu;
    private static SandboxMenu sandboxMenu;
@@ -16,6 +17,7 @@ public final class MenuController {
       mainMenu = new MainMenu();
       pauseMenu = new PauseMenu();
       newGameMenu = new NewGameMenu();
+      multiplayerMenu = new MultiplayerMenu();
       optionsMenu = new OptionsMenu();
       loadSaveMenu = new LoadSaveMenu();
       sandboxMenu = new SandboxMenu();
@@ -36,6 +38,10 @@ public final class MenuController {
             return;
          case SANDBOX:
             sandboxMenu.update(delta);
+            return;
+         case MULTIPLAYER:
+            multiplayerMenu.update(delta);
+            prevMenuState = MenuState.MAIN;
             return;
          case OPTIONS:
             optionsMenu.update(delta);
@@ -59,8 +65,12 @@ public final class MenuController {
             break;
          case LOAD:
             loadSaveMenu.draw();
-		default:
-			break;
+            break;
+         case MULTIPLAYER:
+            multiplayerMenu.draw();
+            break;
+         default:
+            break;
       }
 
       MenuBackground.render();
@@ -82,6 +92,7 @@ public final class MenuController {
       optionsMenu.refreshLayout();
       loadSaveMenu.refreshLayout();
       sandboxMenu.refreshLayout();
+      multiplayerMenu.refreshLayout();
    }
 
    public static void refreshSaveList() {

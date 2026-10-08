@@ -31,6 +31,7 @@ import game.util.Coord;
 import game.util.Point;
 import game.util.PerlinNoise;
 import game.util.Vec4;
+import game.util.ChunkRandom;
 import game.util.SeededRandom;
 import game.world.structure.GamePlayElmt;
 import game.world.structure.InteractionUsed;
@@ -254,7 +255,14 @@ public final class WorldManager implements Runnable {
                }
             }
 
-            this.buildChunkLayer();
+            ChunkRandom.begin(ChunkRandom.chunkSeed(this.worldHandler.getWorld().getWorldSeed(), this.chunkWorldX, this.chunkWorldZ));
+
+            try {
+               this.buildChunkLayer();
+            } finally {
+               ChunkRandom.end();
+            }
+
             this.pendingChunks.get(this.chunkIdx).init(this.finalSamples, this.chunkLayer, this.rockProperty, this.getResourceCountAt(this.chunkWorldX, this.chunkWorldZ));
          }
 
@@ -339,15 +347,15 @@ public final class WorldManager implements Runnable {
             switch (this.finalSamples[tx][tz].zoneId) {
                case KELP_FOREST:
                   if (this.finalSamples[tx][tz].color.dominantAxis() != 1) {
-                     if (Math.random() < 5.0E-4F) {
+                     if (ChunkRandom.random() < 5.0E-4F) {
                         this.chunkLayer.addElement(new Kelp(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
-                     if (Math.random() < 5.0E-4F) {
+                     if (ChunkRandom.random() < 5.0E-4F) {
                         this.chunkLayer.addElement(new SeaBush(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
-                     if (Math.random() < 3.0E-4F) {
+                     if (ChunkRandom.random() < 3.0E-4F) {
                         this.chunkLayer.addElement(new Rock(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -356,28 +364,28 @@ public final class WorldManager implements Runnable {
                         SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new GiantAlga(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz)));
+                           this.chunkLayer.addElement(new GiantAlga(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz)));
                         }
                      } else {
                         SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), true, false));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), true, false));
                         }
                      }
                   }
                   break;
                case REEF:
                   if (this.finalSamples[tx][tz].color.dominantAxis() != 1) {
-                     if (Math.random() < 5.0E-4F) {
+                     if (ChunkRandom.random() < 5.0E-4F) {
                         this.chunkLayer.addElement(new Kelp(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
-                     if (Math.random() < 5.0E-4F) {
+                     if (ChunkRandom.random() < 5.0E-4F) {
                         this.chunkLayer.addElement(new SeaBush(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
-                     if (Math.random() < 3.0E-4F) {
+                     if (ChunkRandom.random() < 3.0E-4F) {
                         this.chunkLayer.addElement(new Rock(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -395,24 +403,24 @@ public final class WorldManager implements Runnable {
                      SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                      if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.99998F
                         && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                        this.chunkLayer.addElement(new GiantAlga(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz)));
+                        this.chunkLayer.addElement(new GiantAlga(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz)));
                      }
                   } else {
-                     if (Math.random() < 5.0E-4F) {
-                        int spongeCount = (int)(4.0 + Math.random() * 6.0);
+                     if (ChunkRandom.random() < 5.0E-4F) {
+                        int spongeCount = (int)(4.0 + ChunkRandom.random() * 6.0);
 
                         for (int s = 0; s < spongeCount; s++) {
                            this.chunkLayer.addElement(new SeaSponge(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                         }
                      }
 
-                     if (Math.random() < 0.005F) {
+                     if (ChunkRandom.random() < 0.005F) {
                         ChunkLayer layer = this.chunkLayer;
                         Point pos = new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz);
                         layer.addElement(new Coral(pos, this.finalSamples[tx][tz].normal));
                      }
 
-                     if (Math.random() < 0.005F) {
+                     if (ChunkRandom.random() < 0.005F) {
                         this.chunkLayer
                            .addElement(
                               new Seaweed(
@@ -426,7 +434,7 @@ public final class WorldManager implements Runnable {
                   break;
                case MIDWATER_A:
                   if (this.finalSamples[tx][tz].color.dominantAxis() != 1) {
-                     if (this.finalSamples[tx][tz].color.isAxisAligned() && Math.random() < 0.03F) {
+                     if (this.finalSamples[tx][tz].color.isAxisAligned() && ChunkRandom.random() < 0.03F) {
                         this.chunkLayer.addElement(new SeaGrass(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -446,20 +454,20 @@ public final class WorldManager implements Runnable {
                         SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.ALGA_LIGHT))) {
-                           this.chunkLayer.addElement(new GiantAlgaLight(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz)));
+                           this.chunkLayer.addElement(new GiantAlgaLight(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz)));
                         }
 
                         SeededRandom.seed = this.worldHandler.getRandGenRock();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9999F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), false, false));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), false, false));
                         }
                      }
                   }
                   break;
                case MIDWATER_C:
                   if (this.finalSamples[tx][tz].color.dominantAxis() != 1) {
-                     if (this.finalSamples[tx][tz].color.isAxisAligned() && Math.random() < 0.03F) {
+                     if (this.finalSamples[tx][tz].color.isAxisAligned() && ChunkRandom.random() < 0.03F) {
                         this.chunkLayer.addElement(new SeaGrass(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -477,7 +485,7 @@ public final class WorldManager implements Runnable {
                   break;
                case MIDWATER_B:
                   if (this.finalSamples[tx][tz].color.dominantAxis() != 1) {
-                     if (this.finalSamples[tx][tz].color.isAxisAligned() && Math.random() < 0.03F) {
+                     if (this.finalSamples[tx][tz].color.isAxisAligned() && ChunkRandom.random() < 0.03F) {
                         this.chunkLayer.addElement(new SeaGrass(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -486,34 +494,34 @@ public final class WorldManager implements Runnable {
                         SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9997F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.JELLY_PLANT))) {
-                           this.chunkLayer.addElement(new JellyPlant(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz)));
+                           this.chunkLayer.addElement(new JellyPlant(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz)));
                         }
 
                         SeededRandom.seed = this.worldHandler.getRandLandscapeAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9999F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), false, false));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), false, false));
                         }
                      } else {
                         SeededRandom.seed = this.worldHandler.getRandGenRock();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), false, false));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), false, false));
                         }
                      }
                   }
                   break;
                case SHALLOW:
                case OPEN_OCEAN:
-                  if (Math.random() < 5.0E-4F) {
+                  if (ChunkRandom.random() < 5.0E-4F) {
                      this.chunkLayer.addElement(new Kelp(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                   }
 
-                  if (Math.random() < 5.0E-4F) {
+                  if (ChunkRandom.random() < 5.0E-4F) {
                      this.chunkLayer.addElement(new SeaBush(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                   }
 
-                  if (Math.random() < 3.0E-4F) {
+                  if (ChunkRandom.random() < 3.0E-4F) {
                      this.chunkLayer.addElement(new Rock(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                   }
 
@@ -532,11 +540,11 @@ public final class WorldManager implements Runnable {
                   break;
                case ABYSS:
                   if (this.finalSamples[tx][tz].color.dominantAxis() == 3) {
-                     if (Math.random() < 4.0E-5F) {
+                     if (ChunkRandom.random() < 4.0E-5F) {
                         this.chunkLayer.addElement(new Vent(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz), this.chunkWorldX, this.chunkWorldZ));
                      }
 
-                     if (Math.random() < 8.0E-4F) {
+                     if (ChunkRandom.random() < 8.0E-4F) {
                         this.chunkLayer.addElement(new Rock(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -551,7 +559,7 @@ public final class WorldManager implements Runnable {
                         }
                      }
 
-                     if (this.finalSamples[tx][tz].color.isAxisAligned() && Math.random() < 0.03F) {
+                     if (this.finalSamples[tx][tz].color.isAxisAligned() && ChunkRandom.random() < 0.03F) {
                         this.chunkLayer.addElement(new DarkSeaGrass(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -560,29 +568,29 @@ public final class WorldManager implements Runnable {
                         SeededRandom.seed = this.worldHandler.getRandLandscapeGiantAlga();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new AbyssalAlga(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz)));
+                           this.chunkLayer.addElement(new AbyssalAlga(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz)));
                         }
 
                         SeededRandom.seed = this.worldHandler.getRandGenDunes();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9999F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), false, true));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), false, true));
                         }
                      } else {
                         SeededRandom.seed = this.worldHandler.getRandGenDunes();
                         if (SeededRandom.nextFloat((float)(lx + this.chunkWorldX) * Chunk.TERRAIN_STEP, (float)(lz + this.chunkWorldZ) * Chunk.TERRAIN_STEP) > 0.9998F
                            && !this.worldHandler.hasInteractionUsed(new InteractionUsed(worldCoord, InteractiveElmt.SEAWEED))) {
-                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + Math.random(), lz), false, true));
+                           this.chunkLayer.addElement(new LargeSeaweed(new Point(lx, this.finalSamples[tx][tz].height + ChunkRandom.random(), lz), false, true));
                         }
                      }
                   }
                case DEEP_ABYSS:
                   if (this.finalSamples[tx][tz].color.dominantAxis() == 3) {
-                     if (Math.random() < 4.0E-5F) {
+                     if (ChunkRandom.random() < 4.0E-5F) {
                         this.chunkLayer.addElement(new Vent(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz), this.chunkWorldX, this.chunkWorldZ));
                      }
 
-                     if (Math.random() < 8.0E-4F) {
+                     if (ChunkRandom.random() < 8.0E-4F) {
                         this.chunkLayer.addElement(new Rock(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
 
@@ -597,12 +605,12 @@ public final class WorldManager implements Runnable {
                         }
                      }
 
-                     if (this.finalSamples[tx][tz].color.isAxisAligned() && Math.random() < 0.03F) {
+                     if (this.finalSamples[tx][tz].color.isAxisAligned() && ChunkRandom.random() < 0.03F) {
                         this.chunkLayer.addElement(new DarkSeaGrass(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz)));
                      }
                   }
 
-                  if (this.finalSamples[tx][tz].color.dominantAxis() == 0 && Math.random() < 0.01F) {
+                  if (this.finalSamples[tx][tz].color.dominantAxis() == 0 && ChunkRandom.random() < 0.01F) {
                      this.chunkLayer.addElement(new AbyssElement(new Point((float)lx, this.finalSamples[tx][tz].height, (float)lz), this.finalSamples[tx][tz].normal));
                   }
             }

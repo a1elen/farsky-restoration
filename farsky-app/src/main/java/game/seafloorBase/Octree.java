@@ -14,6 +14,7 @@ import game.inventory.Item;
 import game.inventory.ItemType;
 import game.manager.GameScene;
 import game.manager.GameState;
+import game.net.NetSession;
 import game.seafloorBase.util.BlockType;
 import game.seafloorBase.util.Dir;
 import game.seafloorBase.util.ElementBlockPair;
@@ -56,6 +57,8 @@ public class Octree implements Serializable {
    private transient CraftingAnimation craftingAnim = new CraftingAnimation();
    private transient Block lastContactBlock = null;
    private transient RoomFiller roomFiller;
+   /** Network identity: this base's index in the shared base list. */
+   private transient int baseIndex = -1;
 
    @SuppressWarnings("unchecked")
    public Octree(Point pos) {
@@ -74,6 +77,7 @@ public class Octree implements Serializable {
          }
       }
 
+      this.assignBlockGridCoords();
       this.roomFiller = new RoomFiller(pos);
       this.baseType = BaseType.EMPTY;
    }
@@ -223,6 +227,7 @@ public class Octree implements Serializable {
             this.updateNeighborState();
       }
 
+      this.assignBlockGridCoords();
       this.rebuildDisplayLists();
    }
 
@@ -979,7 +984,86 @@ public class Octree implements Serializable {
       return worldPos;
    }
 
+   public final void setBaseIndex(int index) {
+      this.baseIndex = index;
+   }
+
+   public final int getBaseIndex() {
+      return this.baseIndex;
+   }
+
+   /** Binds every block to its grid position and owning octree (after construction, generation and deserialization). */
+   private void assignBlockGridCoords() {
+      for (int x = 0; x < 32; x++) {
+         for (int y = 0; y < 8; y++) {
+            for (int z = 0; z < 32; z++) {
+               if (this.blocks[x][y][z] != null) {
+                  this.blocks[x][y][z].setGridPosition(x, y, z, this);
+               }
+            }
+         }
+      }
+   }
+
+   /** Applies a single build action performed by the other peer (game thread). */
+   public final void applyRemoteBlockOp(int x, int y, int z, int op, int param, int dirParam) {
+      if (x < 0 || x >= 32 || y < 0 || y >= 8 || z < 0 || z >= 32 || this.blocks[x][y][z] == null) {
+         return;
+      }
+
+      Block block = this.blocks[x][y][z];
+      Point pos = new Point((float)x, (float)y, (float)z);
+      BlockType[] types = BlockType.values();
+      Dir[] dirs = Dir.values();
+      Material[] materials = Material.values();
+
+      switch (op) {
+         case NetSession.OP_BUILD:
+            block.build();
+            break;
+         case NetSession.OP_CLEAR:
+            block.clearElements();
+            break;
+         case NetSession.OP_DEMOLISH:
+            block.demolish();
+            break;
+         case NetSession.OP_ADD_ELEMENT:
+            if (param >= 0 && param < types.length && dirParam >= 0 && dirParam < dirs.length) {
+               block.addElement(types[param], dirs[dirParam], this.getNeighbors(pos), false);
+            }
+
+            break;
+         case NetSession.OP_REMOVE_ELEMENT:
+            if (param >= 0 && param < types.length) {
+               block.removeElement(types[param], dirParam >= 0 && dirParam < dirs.length ? dirs[dirParam] : null);
+            }
+
+            break;
+         case NetSession.OP_APPLY_MATERIAL:
+            if (param >= 0 && param < materials.length) {
+               block.applyMaterial(materials[param], false);
+            }
+
+            break;
+         default:
+            break;
+      }
+
+      this.updateNeighborState();
+      this.rebuildDisplayLists();
+   }
+
    private void updateNeighborState() {
+      NetSession.beginInternalMutation();
+
+      try {
+         this.updateNeighborStateInternal();
+      } finally {
+         NetSession.endInternalMutation();
+      }
+   }
+
+   private void updateNeighborStateInternal() {
       for (int x = 0; x < 32; x++) {
          for (int y = 0; y < 8; y++) {
             for (int z = 0; z < 32; z++) {
@@ -1093,6 +1177,7 @@ public class Octree implements Serializable {
          this.baseType = BaseType.EMPTY;
       }
 
+      this.assignBlockGridCoords();
       this.rebuildDisplayLists();
    }
 }

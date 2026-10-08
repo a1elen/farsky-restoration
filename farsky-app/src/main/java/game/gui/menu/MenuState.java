@@ -4,6 +4,7 @@ public enum MenuState {
    MAIN,
    PAUSE,
    NEW_GAME,
+   MULTIPLAYER,
    SANDBOX,
    OPTIONS,
    LOAD;

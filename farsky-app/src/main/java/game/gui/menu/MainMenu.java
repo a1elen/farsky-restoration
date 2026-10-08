@@ -10,8 +10,9 @@ public final class MainMenu extends MenuScreen {
       this.buttons.add(new Button(ButtonType.MENU_BUTTON, 0, "Play"));
       this.buttons.add(new Button(ButtonType.MENU_BUTTON, 1, "Sandbox"));
       this.buttons.add(new Button(ButtonType.MENU_BUTTON, 2, "Load"));
-      this.buttons.add(new Button(ButtonType.MENU_BUTTON, 3, "Options"));
-      this.buttons.add(new Button(ButtonType.MENU_BUTTON, 4, "Quit"));
+      this.buttons.add(new Button(ButtonType.MENU_BUTTON, 3, "Multiplayer"));
+      this.buttons.add(new Button(ButtonType.MENU_BUTTON, 4, "Options"));
+      this.buttons.add(new Button(ButtonType.MENU_BUTTON, 5, "Quit"));
    }
 
    @Override
@@ -35,6 +36,10 @@ public final class MainMenu extends MenuScreen {
       if (button.hasLabel("Load")) {
          MenuController.refreshSaveList();
          MenuController.currentMenuState = MenuState.LOAD;
+      }
+
+      if (button.hasLabel("Multiplayer")) {
+         MenuController.currentMenuState = MenuState.MULTIPLAYER;
       }
 
       if (button.hasLabel("Options")) {

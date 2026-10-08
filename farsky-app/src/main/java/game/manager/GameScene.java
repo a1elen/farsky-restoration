@@ -16,6 +16,7 @@ import game.gui.InteractionHint;
 import game.gui.dialog.DialogManager;
 import game.inventory.Item;
 import game.map.MapRenderer;
+import game.net.NetSession;
 import game.outsideObj.OutsideObj;
 import game.player.Avatar;
 import game.player.WorldChest;
@@ -78,8 +79,35 @@ public final class GameScene {
    }
 
    public static void registerSeafloorBase(SeafloorBase base) {
+      if (seafloorBases == null) {
+         seafloorBases = new ArrayList<>();
+      }
+
       base.rebuildDisplayLists();
       seafloorBases.add(base);
+      indexBases();
+   }
+
+   /** Registers the host's bases received when joining a session. */
+   public static void registerRemoteBases(ArrayList<SeafloorBase> bases) {
+      if (bases == null) {
+         return;
+      }
+
+      for (int i = 0; i < bases.size(); i++) {
+         registerSeafloorBase(bases.get(i));
+      }
+   }
+
+   /** Keeps each base's network identity aligned with its list position. */
+   private static void indexBases() {
+      if (seafloorBases == null) {
+         return;
+      }
+
+      for (int i = 0; i < seafloorBases.size(); i++) {
+         seafloorBases.get(i).setBaseIndex(i);
+      }
    }
 
    public static void registerOutsideObject(OutsideObj obj) {
@@ -131,6 +159,8 @@ public final class GameScene {
                }
             }
          }
+
+         indexBases();
 
          if (outsideObjects == null) {
             outsideObjects = new ArrayList<>();
@@ -590,6 +620,28 @@ public final class GameScene {
          }
       }
 
+      // The remote player draws after the base's opaque pass so it stays visible
+      // inside a base (walls would cover an earlier pass); the base's glass is
+      // rendered later in renderAlpha() and still blends over it from the outside.
+      if (Main.getGameState() == GameState.PLAYING || Main.getGameState() == GameState.CINEMATIC_INGAME) {
+         Shaders.enemyShader.bind();
+         RenderManager.setLight();
+         Shaders.setUniform("time", GameTime.elapsedMillis);
+         Shaders.setUniform("alphaLightPercent", 0.0);
+         Shaders.setUniform("emissive", false);
+         if (avatar != null) {
+            Shaders.setUniform("lightLimit", 100.0);
+         } else {
+            Shaders.setUniform("lightLimit", 120.0);
+         }
+
+         Shaders.setUniform("topLight", true);
+         Shaders.setUniform("topLightPos", new Point(0.0F, 1000.0F, 0.0F));
+         Shaders.setUniform("visibleLimit", DepthAtmosphere.getFogDistance());
+         Shaders.setUniform("glowColor", SkyDome.skyColor);
+         NetSession.renderRemote();
+      }
+
       if (Main.isDebug && debugInterval <= 0.0F) {
          startNano = System.nanoTime();
       }
@@ -810,6 +862,8 @@ public final class GameScene {
       }
 
       seafloorBases.add(new SeafloorBase(pos.plus(0.0F, 0.0F, 0.0F), Octree.BaseType.EMPTY));
+      indexBases();
+      game.net.NetSession.sendBaseSpawn(pos);
       avatar.getInventory().consumeCurrentItem();
       baseSpawnProgress = 0.0F;
       Camera.addShake(1.0F);
@@ -826,6 +880,19 @@ public final class GameScene {
          );
       }
 
+      SoundManager.playSound(SoundManager.sfxRisingFromFloor, pos, 0.5F);
+   }
+
+   /** Applies the other player's base spawn: same base, without consuming a local item. */
+   public static void spawnRemoteSeafloorBase(Point pos) {
+      if (seafloorBases == null) {
+         seafloorBases = new ArrayList<>();
+      }
+
+      seafloorBases.add(new SeafloorBase(pos.plus(0.0F, 0.0F, 0.0F), Octree.BaseType.EMPTY));
+      indexBases();
+      Camera.addShake(1.0F);
+      EnvironmentManager.addParticleBurst(new ParticleBurst(pos, new Point(0.0F, 1.0F, 0.0F), 5.0F, 20));
       SoundManager.playSound(SoundManager.sfxRisingFromFloor, pos, 0.5F);
    }
 

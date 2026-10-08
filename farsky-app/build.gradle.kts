@@ -16,15 +16,18 @@ repositories {
 }
 
 dependencies {
-    implementation(libs.slick)
-    implementation(libs.lwjgl)
-    implementation(libs.lwjgl.util)
+    implementation(libs.slick) {
+        // The game ships its own LWJGL (lib/lwjgl.jar); Maven's 2.9.3 reports a
+        // broken window size (0x256) on modern Windows, which breaks all projections.
+        exclude(group = "org.lwjgl.lwjgl")
+    }
+    implementation(files("libs/lwjgl.jar", "libs/lwjgl_util.jar"))
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(7)
+        languageVersion = JavaLanguageVersion.of(17)
     }
 }
 
@@ -35,7 +38,7 @@ application {
 
 tasks.named<JavaExec>("run") {
     jvmArgs(
-        "-Djava.library.path=${project.rootDir}/native/macosx",
+        "-Djava.library.path=${project.rootDir}/native/windows",
         "-Dsun.java2d.d3d=false"
     )
 
@@ -46,3 +49,5 @@ tasks.named<JavaExec>("run") {
         "-windowMode"
     )
 }
+
+tasks.withType<JavaCompile> { options.encoding = "UTF-8" }

@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.manager.TextureManager;
 import game.render.QuadVbo;
@@ -18,7 +19,7 @@ public final class Coral extends ChunkElement {
 
    public Coral(Point pos, Point surfaceNormal) {
       this.position = pos.plus(0.0F, -0.5F, 0.0F);
-      this.size = 4.0F + (float)(Math.random() * 3.0);
+      this.size = 4.0F + (float)(ChunkRandom.random() * 3.0);
       this.normalAngles = surfaceNormal.toAngles();
    }
 

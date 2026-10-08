@@ -32,7 +32,6 @@ public class Droid implements Serializable {
    private static transient int fanTexture;
    private static transient int eyeTexture;
    private static transient Vbo droidMesh;
-   @SuppressWarnings("unused")
    private static transient Vbo droidItemMesh;
    private static transient Vbo fanMesh;
    private static transient Vbo eyeMesh;
@@ -182,7 +181,7 @@ public class Droid implements Serializable {
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, droidTexture);
          droidMesh.render();
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, droidItemTexture);
-         GameScene.clear();
+         droidItemMesh.render();
          Shaders.setUniform("alphaLightPercent", 0.0);
          if (this.attackCooldown < 0.5F) {
             GL11.glPushMatrix();

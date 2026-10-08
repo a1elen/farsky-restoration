@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.collision.AABB;
 import game.render.ModelLoader;
@@ -30,9 +31,9 @@ public final class Alga extends ChunkElement {
    public Alga(Point pos, AlgaType type) {
       this.position = pos.plus(0.0F, -5.0F, 0.0F);
       this.algaType = type;
-      this.yRotation = (float)(Math.random() * 180.0);
-      this.scale = 3.0F + (float)(Math.random() * 5.0);
-      this.brightness = (int)((float)(Math.random() + 0.5) * 10.0F) / 10.0F;
+      this.yRotation = (float)(ChunkRandom.random() * 180.0);
+      this.scale = 3.0F + (float)(ChunkRandom.random() * 5.0);
+      this.brightness = (int)((float)(ChunkRandom.random() + 0.5) * 10.0F) / 10.0F;
    }
 
    public static void loadAssets() {

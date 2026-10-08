@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.environment.EnvironmentManager;
 import game.environment.particle.MovingParticle;
@@ -25,7 +26,7 @@ public final class Seaweed extends ChunkElement {
       this.position = new Point();
       this.position.set(pos);
       this.worldPos = worldPos.copy();
-      this.scale = 2.0F + (float)(Math.random() * 3.0);
+      this.scale = 2.0F + (float)(ChunkRandom.random() * 3.0);
       this.normalAngles = normalDir.toAngles();
    }
 
@@ -66,8 +67,8 @@ public final class Seaweed extends ChunkElement {
                for (int i = 0; i < 3; i++) {
                   EnvironmentManager.addMovingParticle(
                      new MovingParticle(
-                        this.worldPos.plus(new Point(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)),
-                        new Point(Math.random() - 0.5, 1.0, Math.random() - 0.5),
+                        this.worldPos.plus(new Point(ChunkRandom.random() - 0.5, ChunkRandom.random() - 0.5, ChunkRandom.random() - 0.5)),
+                        new Point(ChunkRandom.random() - 0.5, 1.0, ChunkRandom.random() - 0.5),
                         10.0F,
                         1.5F
                      )

@@ -20,10 +20,13 @@ public final class Loading {
    private static Thread worldThread;
    private static LoadingState loadingState;
    private static boolean isNewWorld = false;
+   /** Set before {@link #newWorld} when a joined client must skip the intro cinematic. */
+   public static boolean skipCinematic = false;
 
    public static void loadMenu() {
       GameScene.destroy();
       loadingState = LoadingState.INITIALIZING;
+      skipCinematic = false;
       stopWorldThread();
       ChunkManager.disposeAll();
       startWorldThread(null, false);
@@ -35,6 +38,7 @@ public final class Loading {
       }
 
       loadingState = LoadingState.INITIALIZING;
+      skipCinematic = false;
       stopWorldThread();
       ChunkManager.disposeAll();
       startWorldThread(world, false);
@@ -110,7 +114,7 @@ public final class Loading {
                break;
             case COMPLETE:
                if (Main.getGameState() == GameState.LOADING_GAME) {
-                  if (isNewWorld && GameScene.gameMode.hasCinematic()) {
+                  if (isNewWorld && GameScene.gameMode.hasCinematic() && !skipCinematic) {
                      Cinematic.init(Cinematic.CinematicState.INTRO);
                      Main.gameState = GameState.CINEMATIC_INTRO;
                   } else {
@@ -119,6 +123,8 @@ public final class Loading {
                } else if (Main.getGameState() == GameState.LOADING_MENU) {
                   Main.gameState = GameState.MAIN_MENU;
                }
+
+               skipCinematic = false;
 
                if (isNewWorld) {
                   GameTime.setTime(0.0F, 0.0F);

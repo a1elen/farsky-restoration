@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.render.ModelLoader;
 import game.render.Vbo;
@@ -18,12 +19,12 @@ public final class SeaSponge extends ChunkElement {
    public SeaSponge(Point pos) {
       this.position = new Point();
       this.position.set(pos.plus(0.0F, -1.0F, 0.0F));
-      this.yRotation = (float)(Math.random() * 360.0);
-      this.tiltAngle = (float)(Math.random() * 20.0);
-      this.width = 3.0F + (float)(Math.random() * 15.0);
-      this.spongeHeight = 4.0F + (float)(Math.random() * 6.0);
+      this.yRotation = (float)(ChunkRandom.random() * 360.0);
+      this.tiltAngle = (float)(ChunkRandom.random() * 20.0);
+      this.width = 3.0F + (float)(ChunkRandom.random() * 15.0);
+      this.spongeHeight = 4.0F + (float)(ChunkRandom.random() * 6.0);
       this.color = new Point(1.0F, 0.1F, 0.0F);
-      this.color.scale(1.0F - (float)Math.random() * 0.4F);
+      this.color.scale(1.0F - (float)ChunkRandom.random() * 0.4F);
    }
 
    public static void loadAssets() {

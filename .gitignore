@@ -9,3 +9,9 @@ build
 
 # Ignore jdtls build output directory
 bin
+
+# FarSky game assets - copy them from the game installation into
+# farsky-app/src/main/resources/ (obj/, sounds/, textures/) before building.
+farsky-app/src/main/resources/obj/
+farsky-app/src/main/resources/sounds/
+farsky-app/src/main/resources/textures/

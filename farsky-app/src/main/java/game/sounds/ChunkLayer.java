@@ -43,6 +43,7 @@ import game.render.QuadVbo;
 import game.render.Vertex;
 import game.manager.GameScene;
 import game.manager.GameTime;
+import game.net.NetSession;
 import game.submarine.SubmarinePiece;
 import game.util.Coord;
 import game.util.FontRenderer;
@@ -858,10 +859,33 @@ public class ChunkLayer {
       for (int i = this.oreDeposits.size() - 1; i >= 0; i--) {
          if (CollisionDetector.segmentIntersects(localSegment, (this.oreDeposits.get(i)).getLocalBoundingBox(), (this.oreDeposits.get(i)).getPosition(), new Point())) {
             result = (this.oreDeposits.get(i)).harvest(consume);
+            if (consume && result != null) {
+               NetSession.sendOreDepositHarvested(chunkX, chunkZ, (this.oreDeposits.get(i)).getPosition());
+            }
          }
       }
 
       return result;
+   }
+
+   /** Replays the other peer's deposit harvest: same count and world record, no loot. */
+   public final void applyRemoteOreHarvest(Point localPos) {
+      for (int i = this.oreDeposits.size() - 1; i >= 0; i--) {
+         Point pos = (this.oreDeposits.get(i)).getPosition();
+         if (Math.abs(pos.x - localPos.x) < 0.01F && Math.abs(pos.y - localPos.y) < 0.01F && Math.abs(pos.z - localPos.z) < 0.01F) {
+            (this.oreDeposits.get(i)).harvest(true);
+         }
+      }
+   }
+
+   /** Removes a treasure chest taken by the other peer. */
+   public final void removeTreasureChestAt(int tileX, int tileZ) {
+      for (int i = this.treasureChests.size() - 1; i >= 0; i--) {
+         TreasureChest chest = (TreasureChest)this.treasureChests.get(i);
+         if (chest.getTileX() == tileX && chest.getTileZ() == tileZ) {
+            this.treasureChests.remove(i);
+         }
+      }
    }
 
    public void harvestTerrainOverlay() {
@@ -1237,8 +1261,8 @@ public class ChunkLayer {
                   baseGold = 150;
                }
 
-               int goldAmount = (int)(baseGold + Math.random() * 20.0);
-               if (Math.random() < 0.2F) {
+               int goldAmount = (int)(baseGold + rng.nextFloat() * 20.0);
+               if (rng.nextFloat() < 0.2F) {
                   goldAmount <<= 1;
                }
 

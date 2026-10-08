@@ -83,6 +83,14 @@ public class SeafloorBase implements Serializable {
       return this.pos;
    }
 
+   public final Octree getOctree() {
+      return this.octree;
+   }
+
+   public final void setBaseIndex(int index) {
+      this.octree.setBaseIndex(index);
+   }
+
    private AABB getOctreeBounds() {
       AABB box = new AABB();
       box.copyFrom(this.octree.getBounds());

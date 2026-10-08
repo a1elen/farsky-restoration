@@ -8,6 +8,7 @@ import game.inventory.ItemType;
 import game.manager.Camera;
 import game.manager.Loading;
 import game.manager.TextureManager;
+import game.net.NetSession;
 import game.util.Coord;
 import game.util.Plan;
 import game.util.Point;
@@ -158,6 +159,34 @@ public final class ChunkManager {
    }
 
    public static void traceSegment(Segment segment) {
+      for (int i = 0; i < activeChunks.size(); i++) {
+         if (new Coord(activeChunks.get(i).x + 64, activeChunks.get(i).z + 64).distanceTo(segment.start.toCoord()) < 256.0F) {
+            activeChunks.get(i).traceSegment(segment);
+         }
+      }
+
+      NetSession.sendPlantHarvest(segment);
+   }
+
+   /** Finds the loaded chunk containing the given world position, or null. */
+   public static Chunk getActiveChunkAt(int worldX, int worldZ) {
+      for (int i = 0; i < activeChunks.size(); i++) {
+         if (activeChunks.get(i).x <= worldX
+            && activeChunks.get(i).x + 128 > worldX
+            && activeChunks.get(i).z <= worldZ
+            && activeChunks.get(i).z + 128 > worldZ) {
+            return activeChunks.get(i);
+         }
+      }
+
+      return null;
+   }
+
+   /**
+    * Replays the other peer's plant harvest: identical removals and interaction
+    * records, while loot drops are suppressed by NetSession.isApplyingRemote().
+    */
+   public static void applyRemotePlantHarvest(Segment segment) {
       for (int i = 0; i < activeChunks.size(); i++) {
          if (new Coord(activeChunks.get(i).x + 64, activeChunks.get(i).z + 64).distanceTo(segment.start.toCoord()) < 256.0F) {
             activeChunks.get(i).traceSegment(segment);
@@ -354,6 +383,8 @@ public final class ChunkManager {
                activeChunks.get(i).decrementOre();
             }
          }
+
+         NetSession.sendOreMined(x, z, itemType);
       }
    }
 

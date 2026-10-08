@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.collision.AABB;
 import game.render.ModelLoader;
@@ -23,9 +24,9 @@ public final class LargeSeaweed extends ChunkElement {
       this.position.set(pos);
       this.tall = tall;
       this.orange = orange;
-      this.yRotation = (float)(Math.random() * 180.0);
-      this.scale = 15.0F + (float)(Math.random() * 20.0);
-      this.brightness = (float)(Math.random() * 0.4F + 0.6F);
+      this.yRotation = (float)(ChunkRandom.random() * 180.0);
+      this.scale = 15.0F + (float)(ChunkRandom.random() * 20.0);
+      this.brightness = (float)(ChunkRandom.random() * 0.4F + 0.6F);
    }
 
    public static void loadAssets() {

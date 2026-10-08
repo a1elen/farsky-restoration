@@ -8,6 +8,11 @@ public final class SeedInput {
       seed = (int)(Math.random() * Math.pow(10.0, 6.0));
    }
 
+   public static void setSeed(int value) {
+      seed = value;
+      digitCount = 0;
+   }
+
    public static void reset() {
       digitCount = 0;
    }

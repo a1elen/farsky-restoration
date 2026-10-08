@@ -1,4 +1,5 @@
 package game.chunks.chunkElements;
+import game.util.ChunkRandom;
 
 import game.environment.EnvironmentManager;
 import game.environment.particle.BurstParticle;
@@ -24,7 +25,7 @@ public final class RockRing extends ChunkElement {
          this.emitTimer -= 0.15F;
 
          for (int i = 0; i < 3; i++) {
-            EnvironmentManager.addBurstParticle(new BurstParticle(null, new Point((Math.random() - 0.5) * 0.3F, 1.0, (Math.random() - 0.5) * 0.3F), 40.0F, 3.5F));
+            EnvironmentManager.addBurstParticle(new BurstParticle(null, new Point((ChunkRandom.random() - 0.5) * 0.3F, 1.0, (ChunkRandom.random() - 0.5) * 0.3F), 40.0F, 3.5F));
          }
       }
    }

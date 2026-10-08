@@ -33,6 +33,7 @@ public class World implements Serializable {
    private float dayTime;
    private float nightTime;
    private EnemyGenerator.SpawningLevel spawning;
+   private int worldSeed;
 
    public World(int width, int height) {
       this.WIDTH = width;
@@ -137,6 +138,14 @@ public class World implements Serializable {
 
    public final void setRandLandscapeGiantAlga(float value) {
       this.randLandscapeGiantAlga = value;
+   }
+
+   public final int getWorldSeed() {
+      return this.worldSeed;
+   }
+
+   public final void setWorldSeed(int seed) {
+      this.worldSeed = seed;
    }
 
    public final int getWidth() {
