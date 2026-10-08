@@ -521,6 +521,18 @@ public class Block implements Serializable {
       return false;
    }
 
+   public final int getGridX() {
+      return this.gridX;
+   }
+
+   public final int getGridY() {
+      return this.gridY;
+   }
+
+   public final int getGridZ() {
+      return this.gridZ;
+   }
+
    public final Element getElement(BlockType type) {
       for (int i = 0; i < this.elmts.size(); i++) {
          if (this.elmts.get(i).getBlockType() == type) {

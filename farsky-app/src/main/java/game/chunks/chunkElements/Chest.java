@@ -81,7 +81,7 @@ public final class Chest extends ChunkElement {
 
             this.openAmount = 1.0F;
             Main.gameState = GameState.INVENTORY;
-            InventoryHud.setInventory(this.inventory);
+            InventoryHud.setInventory(this.inventory, this.chunkX, this.chunkZ);
             this.opening = false;
             return;
          }

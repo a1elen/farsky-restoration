@@ -13,6 +13,17 @@ import org.lwjgl.opengl.GL11;
 
 public final class InventoryHud {
    private static Inventory openInventory;
+   private static int openTileX = -1;
+   private static int openTileZ = -1;
+   private static int openBaseIdx = -1;
+   private static int openBx = -1;
+   private static int openBy = -1;
+   private static int openBz = -1;
+   private static int openElemType = -1;
+   private static boolean openIsTomb = false;
+   private static float openObjX = Float.NaN;
+   private static float openObjZ = Float.NaN;
+   private static int openDroidIdx = -1;
    private static int sideOffset;
    private static Storage dragStorage;
    private static Storage dragSource;
@@ -192,6 +203,13 @@ public final class InventoryHud {
       } else {
          tooltipAlpha = 0.0F;
       }
+
+      // Push the open inventory's contents to the peer whenever they changed.
+      game.net.NetSession.sendChestInventoryIfChanged(openTileX, openTileZ, openInventory);
+      game.net.NetSession.sendBaseInventoryIfChanged(openBaseIdx, openBx, openBy, openBz, openElemType, openInventory);
+      game.net.NetSession.sendTombInventoryIfChanged(openIsTomb ? openInventory : null);
+      game.net.NetSession.sendObjInventoryIfChanged(openObjX, openObjZ, openInventory);
+      game.net.NetSession.sendDroidInventoryIfChanged(openDroidIdx, openInventory);
    }
 
    public static void render() {
@@ -312,12 +330,57 @@ public final class InventoryHud {
    }
 
    public static void setInventory(Inventory inventory) {
+      setInventory(inventory, -1, -1, -1, -1, -1, -1, -1, false);
+   }
+
+   /** World chest: identified by its tile coordinates. */
+   public static void setInventory(Inventory inventory, int tileX, int tileZ) {
+      setInventory(inventory, tileX, tileZ, -1, -1, -1, -1, -1, false);
+   }
+
+   /** Death tomb: a single implicit slot synced as "the tomb". */
+   public static void setInventory(Inventory inventory, boolean isTomb) {
+      setInventory(inventory, -1, -1, -1, -1, -1, -1, -1, isTomb);
+   }
+
+   /**
+    * @param tileX, tileZ world chest tile (-1 if not a world chest)
+    * @param baseIdx base index (>= 0 for base elements), bx/by/bz block coords
+    *                and elemType BlockType ordinal identifying the element
+    *                (-1 = local-only inventory: droid, extractor)
+    * @param isTomb true for the death tomb chest
+    */
+   public static void setInventory(Inventory inventory, int tileX, int tileZ, int baseIdx, int bx, int by, int bz, int elemType, boolean isTomb) {
       openInventory = inventory;
+      openTileX = tileX;
+      openTileZ = tileZ;
+      openBaseIdx = baseIdx;
+      openBx = bx;
+      openBy = by;
+      openBz = bz;
+      openElemType = elemType;
+      openIsTomb = isTomb;
+      openObjX = Float.NaN;
+      openObjZ = Float.NaN;
+      openDroidIdx = -1;
       if (inventory == null) {
          sideOffset = 0;
       }
 
       takeAllButton = null;
+   }
+
+   /** Outside object (extractor): identified by its placement position. */
+   public static void setOutsideObjInventory(Inventory inventory, float x, float z) {
+      setInventory(inventory);
+      openObjX = x;
+      openObjZ = z;
+   }
+
+   /** Droid: identified by its index in GameScene.getDroids() (spawn order). */
+   public static void setDroidInventory(Inventory inventory, int droidIdx) {
+      setInventory(inventory);
+      openDroidIdx = droidIdx;
    }
 
    public static void setTakeAllButtonYPos(int yPos) {

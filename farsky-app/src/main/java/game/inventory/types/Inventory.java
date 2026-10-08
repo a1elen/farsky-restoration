@@ -65,6 +65,34 @@ public class Inventory implements Serializable {
       this.storageArray.consumeOne(itemType);
    }
 
+   /**
+    * Copies another inventory's contents (and any internal state) into this
+    * instance; inventories with extra storage override this.
+    */
+   public void copyStateFrom(Inventory source) {
+      if (source == null) {
+         return;
+      }
+
+      copyCells(source.storageArray, this.storageArray);
+   }
+
+   protected static void copyCells(StorageArray source, StorageArray target) {
+      if (source == null || target == null) {
+         return;
+      }
+
+      int width = Math.min(source.getWidth(), target.getWidth());
+      int height = Math.min(source.getHeight(), target.getHeight());
+
+      for (int col = 0; col < width; col++) {
+         for (int row = 0; row < height; row++) {
+            Item srcItem = source.get(col, row).getItem();
+            target.get(col, row).setItem(srcItem == null ? null : new Item(srcItem.getType(), srcItem.getCount()));
+         }
+      }
+   }
+
    public final StorageArray getStorageArray() {
       return this.storageArray;
    }

@@ -860,7 +860,8 @@ public class ChunkLayer {
          if (CollisionDetector.segmentIntersects(localSegment, (this.oreDeposits.get(i)).getLocalBoundingBox(), (this.oreDeposits.get(i)).getPosition(), new Point())) {
             result = (this.oreDeposits.get(i)).harvest(consume);
             if (consume && result != null) {
-               NetSession.sendOreDepositHarvested(chunkX, chunkZ, (this.oreDeposits.get(i)).getPosition());
+               // harvestOre runs in world coordinates; the protocol uses tile coordinates.
+               NetSession.sendOreDepositHarvested(chunkX / 128, chunkZ / 128, (this.oreDeposits.get(i)).getPosition());
             }
          }
       }

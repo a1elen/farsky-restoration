@@ -40,6 +40,7 @@ public final class PlayerHud {
    private static ArrayList<Float> damageTimers = new ArrayList<>();
 
    public static void update(float delta) {
+      ChatHud.update(delta);
       if (Main.getGameState() == GameState.PLAYING) {
          if (hitFlashTimer > 0.0F) {
             hitFlashTimer -= delta;
@@ -216,6 +217,16 @@ public final class PlayerHud {
 
       if (damageTimers.size() > 0) {
          renderDamageNumbers();
+      }
+
+      ChatHud.render();
+
+      if (game.net.NetSession.isActive()) {
+         GL11.glColor4f(1.0F, 0.95F, 0.6F, 0.9F);
+         FontRenderer.setFontFamily(FontFamily.ECCENTRIC);
+         String netCoins = "Coins: " + (Main.achievements != null ? Main.achievements.getMoney() : 0) + " | Peer: " + game.net.NetSession.getRemoteMoney();
+         FontRenderer.draw(Display.getWidth() - FontRenderer.getTextWidth(netCoins, 0.5F) - 24, 24, netCoins, 0.5F);
+         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       renderAirBar();

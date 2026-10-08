@@ -3,7 +3,10 @@ package game.net;
 import game.Main;
 import game.chunks.ChunkManager;
 import game.enemy.EnemyGenerator;
+import game.inventory.Item;
 import game.inventory.ItemType;
+import game.inventory.StorageArray;
+import game.inventory.types.Inventory;
 import game.manager.GameMode;
 import game.manager.GameScene;
 import game.manager.GameState;
@@ -50,7 +53,7 @@ public final class NetSession {
    public enum Status { OFFLINE, LISTENING, CONNECTING, CONNECTED, ERROR }
 
    public static final int DEFAULT_PORT = 45678;
-   private static final int PROTOCOL_VERSION = 2;
+   private static final int PROTOCOL_VERSION = 4;
    private static final byte MSG_HELLO = 1;
    private static final byte MSG_WELCOME = 2;
    private static final byte MSG_POS = 3;
@@ -60,8 +63,31 @@ public final class NetSession {
    private static final byte MSG_ORE_MINED = 7;
    private static final byte MSG_BASE_SPAWN = 8;
    private static final byte MSG_BLOCK_OP = 9;
+   private static final byte MSG_ITEM_SPAWN = 10;
+   private static final byte MSG_ITEM_TAKE = 11;
+   private static final byte MSG_CHEST_INVENTORY = 12;
+   private static final byte MSG_BASE_INVENTORY = 13;
+   private static final byte MSG_CHAT = 14;
+   private static final byte MSG_TOMB_SPAWN = 15;
+   private static final byte MSG_TOMB_INVENTORY = 16;
+   private static final byte MSG_OBJ_SPAWN = 17;
+   private static final byte MSG_SUB_SPAWN = 18;
+   private static final byte MSG_OBJ_INVENTORY = 19;
+   private static final byte MSG_DROID_SPAWN = 20;
+   private static final byte MSG_DROID_INVENTORY = 21;
+   private static final byte MSG_DROID_STATE = 22;
+   private static final byte MSG_DROID_SYNC = 23;
+   private static final byte MSG_WATER = 24;
+   private static final byte MSG_POT_STATE = 25;
+   // Kinds carried by MSG_OBJ_SPAWN (placed outside objects).
+   public static final int OBJ_EXTRACTOR = 0;
+   public static final int OBJ_EXTRACTOR_OVERPOWERED = 1;
+   public static final int OBJ_HARPOON = 2;
+   public static final int OBJ_LAMP = 3;
    private static final int MAX_FRAME_SIZE = 33554432;
    private static final float SEND_INTERVAL = 0.05F;
+   private static final float WATER_SEND_INTERVAL = 2.0F;
+   private static final float DROID_SEND_INTERVAL = 0.2F;
    private static final int CONNECT_TIMEOUT_MS = 5000;
 
    // Block operation codes for MSG_BLOCK_OP.
@@ -102,6 +128,32 @@ public final class NetSession {
    private static boolean applyingRemote = false;
    private static int suppressSends = 0;
    private static final ArrayList<byte[]> pendingWorldOps = new ArrayList<byte[]>();
+   // Last chest inventory snapshot sent or received, to avoid resending unchanged chests.
+   private static int chestSyncTileX = -1;
+   private static int chestSyncTileZ = -1;
+   private static byte[] chestSyncBytes = null;
+   // Same for base element inventories (workshops, cookers, base chests).
+   private static int baseSyncIdx = -1;
+   private static int baseSyncX = -1;
+   private static int baseSyncY = -1;
+   private static int baseSyncZ = -1;
+   private static int baseSyncType = -1;
+   private static byte[] baseSyncBytes = null;
+   // Last death tomb inventory snapshot sent or received.
+   private static byte[] tombSyncBytes = null;
+   // Last outside-object (extractor) inventory snapshot sent or received.
+   private static float objSyncX = Float.NaN;
+   private static float objSyncZ = Float.NaN;
+   private static byte[] objSyncBytes = null;
+   // Last droid inventory snapshot sent or received.
+   private static int droidSyncIdx = -1;
+   private static byte[] droidSyncBytes = null;
+   // Peer state mirrored from MSG_POS (money, driven submarine).
+   private static int remoteMoney = 0;
+   private static int remoteSubIdx = -1;
+   // Periodic host snapshots: water levels, droid positions.
+   private static float waterTimer = 0.0F;
+   private static float droidTimer = 0.0F;
 
    static {
       String addr = System.getProperty("farsky.join");
@@ -124,6 +176,19 @@ public final class NetSession {
 
    public static boolean isActive() {
       return role != Role.NONE;
+   }
+
+   /** The peer's coin count, mirrored from MSG_POS (0 when unknown). */
+   public static int getRemoteMoney() {
+      return remoteMoney;
+   }
+
+   /**
+    * True while this side mirrors the host's world (client role, linked and in
+    * game): local AI simulation is skipped so host snapshots stay authoritative.
+    */
+   public static boolean isClientMirror() {
+      return role == Role.CLIENT && status == Status.CONNECTED && isGameplayState();
    }
 
    /** Starts listening for one client and creates a fresh adventure world. */
@@ -234,6 +299,21 @@ public final class NetSession {
             sendTimer = 0.0F;
             sendPosition();
          }
+
+         // Host mirrors slowly changing shared state (water levels, droids).
+         if (role == Role.HOST) {
+            waterTimer += delta;
+            if (waterTimer >= WATER_SEND_INTERVAL) {
+               waterTimer = 0.0F;
+               sendWaterState();
+            }
+
+            droidTimer += delta;
+            if (droidTimer >= DROID_SEND_INTERVAL) {
+               droidTimer = 0.0F;
+               sendDroidSnapshots();
+            }
+         }
       }
 
       if (pendingSpawn && Main.getGameState() == GameState.PLAYING && GameScene.avatar != null) {
@@ -251,6 +331,11 @@ public final class NetSession {
       if (remote != null && status == Status.CONNECTED) {
          remote.render();
       }
+   }
+
+   /** The remote peer's avatar, or null while not connected. */
+   public static RemotePlayer getRemotePlayer() {
+      return status == Status.CONNECTED ? remote : null;
    }
 
    // ------------------------------------------------------------------
@@ -339,6 +424,19 @@ public final class NetSession {
       incoming.clear();
       outgoing.clear();
       pendingWorldOps.clear();
+      if (remoteSubIdx >= 0 && GameScene.getSubmarines() != null && remoteSubIdx < GameScene.getSubmarines().size()) {
+         GameScene.getSubmarines().get(remoteSubIdx).applyRemoteIdle();
+      }
+
+      remoteMoney = 0;
+      remoteSubIdx = -1;
+      objSyncX = Float.NaN;
+      objSyncZ = Float.NaN;
+      objSyncBytes = null;
+      droidSyncIdx = -1;
+      droidSyncBytes = null;
+      waterTimer = 0.0F;
+      droidTimer = 0.0F;
       clientAlive = true;
       welcomeSent = false;
       eventClientJoined = false;
@@ -456,23 +554,69 @@ public final class NetSession {
                }
 
                break;
-            case MSG_POS:
+            case MSG_POS: {
                float x = d.readFloat();
                float y = d.readFloat();
                float z = d.readFloat();
                float yaw = d.readFloat();
+               remoteMoney = d.readInt();
+               int flags = d.readByte();
                if (remote == null) {
                   remote = new RemotePlayer();
                }
 
                remote.setTarget(x, y, z, yaw);
+               boolean navigating = (flags & 1) != 0;
+               if (navigating) {
+                  int subIdx = d.readInt();
+                  float sx = d.readFloat();
+                  float sy = d.readFloat();
+                  float sz = d.readFloat();
+                  float srx = d.readFloat();
+                  float sry = d.readFloat();
+                  java.util.ArrayList<game.submarine.Submarine> subs = GameScene.getSubmarines();
+                  if (subs != null && subIdx >= 0 && subIdx < subs.size()) {
+                     if (remoteSubIdx >= 0 && remoteSubIdx < subs.size() && remoteSubIdx != subIdx) {
+                        subs.get(remoteSubIdx).applyRemoteIdle();
+                     }
+
+                     subs.get(subIdx).applyRemoteDrive(sx, sy, sz, srx, sry);
+                     remoteSubIdx = subIdx;
+                  }
+               } else if (remoteSubIdx >= 0) {
+                  java.util.ArrayList<game.submarine.Submarine> subs = GameScene.getSubmarines();
+                  if (subs != null && remoteSubIdx < subs.size()) {
+                     subs.get(remoteSubIdx).applyRemoteIdle();
+                  }
+
+                  remoteSubIdx = -1;
+               }
+
+               remote.setNavigating(navigating);
                break;
+            }
             case MSG_CHEST_TAKEN:
             case MSG_PLANT_HARVEST:
             case MSG_ORE_DEPOSIT:
             case MSG_ORE_MINED:
             case MSG_BASE_SPAWN:
             case MSG_BLOCK_OP:
+            case MSG_ITEM_SPAWN:
+            case MSG_ITEM_TAKE:
+            case MSG_CHEST_INVENTORY:
+            case MSG_BASE_INVENTORY:
+            case MSG_CHAT:
+            case MSG_TOMB_SPAWN:
+            case MSG_TOMB_INVENTORY:
+            case MSG_OBJ_SPAWN:
+            case MSG_SUB_SPAWN:
+            case MSG_OBJ_INVENTORY:
+            case MSG_DROID_SPAWN:
+            case MSG_DROID_INVENTORY:
+            case MSG_DROID_STATE:
+            case MSG_DROID_SYNC:
+            case MSG_POT_STATE:
+            case MSG_WATER:
                if (isGameplayState()) {
                   applyWorldMessage(frame);
                } else {
@@ -536,12 +680,69 @@ public final class NetSession {
 
       byte[] baseBytes = new byte[basesLen];
       d.readFully(baseBytes);
+      int objLen = d.readInt();
+      if (objLen <= 0 || objLen > MAX_FRAME_SIZE) {
+         disconnect();
+         status = Status.ERROR;
+         statusText = "Host sent invalid object snapshot.";
+         return;
+      }
+
+      byte[] objBytes = new byte[objLen];
+      d.readFully(objBytes);
+      int droidLen = d.readInt();
+      if (droidLen <= 0 || droidLen > MAX_FRAME_SIZE) {
+         disconnect();
+         status = Status.ERROR;
+         statusText = "Host sent invalid droid snapshot.";
+         return;
+      }
+
+      byte[] droidBytes = new byte[droidLen];
+      d.readFully(droidBytes);
+      int subLen = d.readInt();
+      if (subLen <= 0 || subLen > MAX_FRAME_SIZE) {
+         disconnect();
+         status = Status.ERROR;
+         statusText = "Host sent invalid submarine snapshot.";
+         return;
+      }
+
+      byte[] subBytes = new byte[subLen];
+      d.readFully(subBytes);
+      int tombLen = d.readInt();
+      byte[] tombInvBytes = null;
+      float tombX = 0.0F;
+      float tombY = 0.0F;
+      float tombZ = 0.0F;
+      if (tombLen > 0) {
+         if (tombLen > MAX_FRAME_SIZE) {
+            disconnect();
+            status = Status.ERROR;
+            statusText = "Host sent invalid tomb snapshot.";
+            return;
+         }
+
+         tombX = d.readFloat();
+         tombY = d.readFloat();
+         tombZ = d.readFloat();
+         tombInvBytes = new byte[tombLen];
+         d.readFully(tombInvBytes);
+      }
 
       World world;
       ArrayList<SeafloorBase> bases;
+      java.util.ArrayList<game.outsideObj.OutsideObj> sessionObjects;
+      java.util.ArrayList<game.player.droid.Droid> sessionDroids;
+      java.util.ArrayList<game.submarine.Submarine> sessionSubs;
+      Inventory sessionTomb;
       try {
          world = (World)deserialize(worldBytes);
          bases = (ArrayList<SeafloorBase>)deserialize(baseBytes);
+         sessionObjects = (java.util.ArrayList<game.outsideObj.OutsideObj>)deserialize(objBytes);
+         sessionDroids = (java.util.ArrayList<game.player.droid.Droid>)deserialize(droidBytes);
+         sessionSubs = (java.util.ArrayList<game.submarine.Submarine>)deserialize(subBytes);
+         sessionTomb = tombInvBytes == null ? null : (Inventory)deserialize(tombInvBytes);
       } catch (Exception e) {
          disconnect();
          status = Status.ERROR;
@@ -567,13 +768,17 @@ public final class NetSession {
       Loading.loadGame(world);
       Loading.skipCinematic = true;
       GameScene.registerRemoteBases(bases);
+      GameScene.registerRemoteSession(sessionObjects, sessionDroids, sessionSubs);
+      if (sessionTomb != null) {
+         GameScene.worldChest = new game.player.WorldChest(sessionTomb, new game.util.Point(tombX, tombY, tombZ));
+      }
       pendingSpawn = true;
       Main.gameState = GameState.LOADING_GAME;
    }
 
    private static void sendPosition() {
       Point pos = GameScene.avatar.getPos();
-      ByteArrayOutputStream bos = new ByteArrayOutputStream(17);
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(32);
       DataOutputStream d = new DataOutputStream(bos);
 
       try {
@@ -582,6 +787,30 @@ public final class NetSession {
          d.writeFloat(pos.y);
          d.writeFloat(pos.z);
          d.writeFloat(GameScene.avatar.getHorizontalAngle());
+         d.writeInt(Main.achievements != null ? Main.achievements.getMoney() : 0);
+
+         byte flags = 0;
+         game.submarine.Submarine driveSub = null;
+         if (GameScene.avatar.isNavigating()) {
+            driveSub = GameScene.getActiveSubmarine();
+         }
+
+         int subIdx = driveSub == null || GameScene.getSubmarines() == null ? -1 : GameScene.getSubmarines().indexOf(driveSub);
+         if (subIdx >= 0) {
+            flags |= 1;
+         } else {
+            driveSub = null;
+         }
+
+         d.writeByte(flags);
+         if (driveSub != null) {
+            d.writeInt(subIdx);
+            d.writeFloat(driveSub.getPosition().x);
+            d.writeFloat(driveSub.getPosition().y);
+            d.writeFloat(driveSub.getPosition().z);
+            d.writeFloat(driveSub.getRotation().x);
+            d.writeFloat(driveSub.getRotation().y);
+         }
       } catch (IOException e) {
          return;
       }
@@ -625,7 +854,33 @@ public final class NetSession {
          ArrayList<SeafloorBase> bases = GameScene.getSeafloorBases();
          byte[] baseBytes = serialize(bases == null ? new ArrayList<SeafloorBase>() : new ArrayList<SeafloorBase>(bases));
          d.writeInt(baseBytes.length);
-         d.write(baseBytes);
+          d.write(baseBytes);
+
+          java.util.ArrayList<game.outsideObj.OutsideObj> objects = GameScene.getOutsideObjects();
+          byte[] objBytes = serialize(objects == null ? new java.util.ArrayList<game.outsideObj.OutsideObj>() : new java.util.ArrayList<game.outsideObj.OutsideObj>(objects));
+          d.writeInt(objBytes.length);
+          d.write(objBytes);
+
+          java.util.ArrayList<game.player.droid.Droid> droidList = GameScene.getDroids();
+          byte[] droidBytes = serialize(droidList == null ? new java.util.ArrayList<game.player.droid.Droid>() : new java.util.ArrayList<game.player.droid.Droid>(droidList));
+          d.writeInt(droidBytes.length);
+          d.write(droidBytes);
+
+          java.util.ArrayList<game.submarine.Submarine> subList = GameScene.getSubmarines();
+          byte[] subBytes = serialize(subList == null ? new java.util.ArrayList<game.submarine.Submarine>() : new java.util.ArrayList<game.submarine.Submarine>(subList));
+          d.writeInt(subBytes.length);
+          d.write(subBytes);
+
+          if (GameScene.worldChest != null && GameScene.worldChest.getInventory() != null) {
+             byte[] tombInvBytes = serialize(GameScene.worldChest.getInventory());
+             d.writeInt(tombInvBytes.length);
+             d.writeFloat(GameScene.worldChest.getPosition().x);
+             d.writeFloat(GameScene.worldChest.getPosition().y);
+             d.writeFloat(GameScene.worldChest.getPosition().z);
+             d.write(tombInvBytes);
+          } else {
+             d.writeInt(-1);
+          }
       } catch (IOException e) {
          // Cannot happen on a byte array stream.
       }
@@ -815,7 +1070,488 @@ public final class NetSession {
       queueRaw(bos.toByteArray());
    }
 
-   /** Applies a world state event received from the other peer (game thread). */
+   /** Reports a freshly spawned world item so the peer shows the same pickup. */
+   public static void sendItemSpawn(Point pos, ItemType itemType) {
+      if (!shouldSendWorldEvents() || itemType == null) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(14);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_ITEM_SPAWN);
+         d.writeByte(itemType.ordinal());
+         d.writeFloat(pos.x);
+         d.writeFloat(pos.y);
+         d.writeFloat(pos.z);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Reports an item the local avatar collected so the peer removes it too. */
+   public static void sendItemTake(Point pos, ItemType itemType) {
+      if (!shouldSendWorldEvents() || itemType == null) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(14);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_ITEM_TAKE);
+         d.writeByte(itemType.ordinal());
+         d.writeFloat(pos.x);
+         d.writeFloat(pos.y);
+         d.writeFloat(pos.z);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /**
+    * Sends the open world chest's full inventory whenever its content changed;
+    * the peer overwrites its own copy of the same chest in place.
+    */
+   public static void sendChestInventoryIfChanged(int tileX, int tileZ, Inventory inventory) {
+      if (tileX < 0 || inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      if (chestSyncTileX == tileX && chestSyncTileZ == tileZ && java.util.Arrays.equals(chestSyncBytes, bytes)) {
+         return;
+      }
+
+      chestSyncTileX = tileX;
+      chestSyncTileZ = tileZ;
+      chestSyncBytes = bytes;
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 13);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_CHEST_INVENTORY);
+         d.writeInt(tileX);
+         d.writeInt(tileZ);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /**
+    * Sends the open base element inventory (workshop, cooker, base chest)
+    * whenever its content changed; the peer overwrites its copy in place.
+    */
+   public static void sendBaseInventoryIfChanged(int baseIdx, int bx, int by, int bz, int elemType, Inventory inventory) {
+      if (baseIdx < 0 || inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      if (baseSyncIdx == baseIdx && baseSyncX == bx && baseSyncY == by && baseSyncZ == bz
+         && baseSyncType == elemType && java.util.Arrays.equals(baseSyncBytes, bytes)) {
+         return;
+      }
+
+      baseSyncIdx = baseIdx;
+      baseSyncX = bx;
+      baseSyncY = by;
+      baseSyncZ = bz;
+      baseSyncType = elemType;
+      baseSyncBytes = bytes;
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 9);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_BASE_INVENTORY);
+         d.writeByte(baseIdx);
+         d.writeByte(bx);
+         d.writeByte(by);
+         d.writeByte(bz);
+         d.writeByte(elemType);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Sends one chat line to the peer. */
+   public static void sendChat(String text) {
+      if (text == null || text.isEmpty() || status != Status.CONNECTED) {
+         return;
+      }
+
+      byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 5);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_CHAT);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Announces the local player's death tomb so the peer can spawn the same chest. */
+   public static void sendTombSpawn(Inventory inventory, float x, float y, float z) {
+      if (inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 17);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_TOMB_SPAWN);
+         d.writeFloat(x);
+         d.writeFloat(y);
+         d.writeFloat(z);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Pushes the open death tomb's contents to the peer whenever they changed. */
+   public static void sendTombInventoryIfChanged(Inventory inventory) {
+      if (inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      if (java.util.Arrays.equals(tombSyncBytes, bytes)) {
+         return;
+      }
+
+      tombSyncBytes = bytes;
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 5);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_TOMB_INVENTORY);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Announces a placed outside object (extractor, harpoon cannon, lamp) at its placement point. */
+   public static void sendOutsideObjSpawn(int kind, float x, float y, float z) {
+      if (!shouldSendWorldEvents()) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(14);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_OBJ_SPAWN);
+         d.writeByte(kind);
+         d.writeFloat(x);
+         d.writeFloat(y);
+         d.writeFloat(z);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+      /** Pushes the open outside-object (extractor) inventory to the peer when it changed. */
+   public static void sendObjInventoryIfChanged(float x, float z, Inventory inventory) {
+      if (Float.isNaN(x) || Float.isNaN(z) || inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      if (objSyncX == x && objSyncZ == z && java.util.Arrays.equals(objSyncBytes, bytes)) {
+         return;
+      }
+
+      objSyncX = x;
+      objSyncZ = z;
+      objSyncBytes = bytes;
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 9);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_OBJ_INVENTORY);
+         d.writeFloat(x);
+         d.writeFloat(z);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Announces a placed droid; the peer adds the same serialized instance. */
+   public static void sendDroidSpawn(game.player.droid.Droid droid) {
+      if (droid == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(droid);
+      } catch (IOException e) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 5);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_DROID_SPAWN);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Pushes the open droid inventory to the peer when it changed. */
+   public static void sendDroidInventoryIfChanged(int droidIdx, Inventory inventory) {
+      if (droidIdx < 0 || inventory == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      byte[] bytes;
+      try {
+         bytes = serialize(inventory);
+      } catch (IOException e) {
+         return;
+      }
+
+      if (droidSyncIdx == droidIdx && java.util.Arrays.equals(droidSyncBytes, bytes)) {
+         return;
+      }
+
+      droidSyncIdx = droidIdx;
+      droidSyncBytes = bytes;
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bytes.length + 6);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_DROID_INVENTORY);
+         d.writeByte(droidIdx);
+         d.writeInt(bytes.length);
+         d.write(bytes);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Human command: droid mode change (stateOrdinal = DroidState ordinal, -1 = repaired). */
+   public static void sendDroidState(int droidIdx, int stateOrdinal) {
+      if (droidIdx < 0 || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(3);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_DROID_STATE);
+         d.writeByte(droidIdx);
+         d.writeByte(stateOrdinal);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Human command: the local player repaired the droid (their spheres were spent). */
+   public static void sendDroidFixed(int droidIdx) {
+      sendDroidState(droidIdx, -1);
+   }
+
+   /** Announces a placed submarine; the peer spawns the same boat. */
+   public static void sendSubmarineSpawn(float x, float y, float z) {
+      if (!shouldSendWorldEvents()) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(13);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_SUB_SPAWN);
+         d.writeFloat(x);
+         d.writeFloat(y);
+         d.writeFloat(z);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /**
+    * Human action: plant (cropIdx 0..2) or harvest (cropIdx -1) a shared base
+    * plant pot; growth then continues deterministically on both sides.
+    */
+   public static void sendPotState(game.seafloorBase.Octree octree, int bx, int by, int bz, int cropIdx) {
+      if (cropIdx < -1 || cropIdx > 2 || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      ArrayList<SeafloorBase> bases = GameScene.getSeafloorBases();
+      if (bases == null) {
+         return;
+      }
+
+      int baseIdx = -1;
+      for (int i = 0; i < bases.size(); i++) {
+         if (bases.get(i).getOctree() == octree) {
+            baseIdx = i;
+            break;
+         }
+      }
+
+      if (baseIdx < 0) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(6);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_POT_STATE);
+         d.writeByte(baseIdx);
+         d.writeByte(bx);
+         d.writeByte(by);
+         d.writeByte(bz);
+         d.writeByte(cropIdx);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Host: pushes every base's water level fill so floods match on both sides. */
+   private static void sendWaterState() {
+      ArrayList<SeafloorBase> bases = GameScene.getSeafloorBases();
+      if (bases == null) {
+         return;
+      }
+
+      for (int i = 0; i < bases.size(); i++) {
+         if (bases.get(i).getOctree() == null) {
+            continue;
+         }
+
+         byte[] data = bases.get(i).getOctree().serializeWaterParams();
+         ByteArrayOutputStream bos = new ByteArrayOutputStream(data.length + 6);
+         DataOutputStream d = new DataOutputStream(bos);
+
+         try {
+            d.writeByte(MSG_WATER);
+            d.writeByte(i);
+            d.writeInt(data.length);
+            d.write(data);
+         } catch (IOException e) {
+            return;
+         }
+
+         queueRaw(bos.toByteArray());
+      }
+   }
+
+   /** Host: mirrors droid positions and modes to the client several times per second. */
+   private static void sendDroidSnapshots() {
+      java.util.ArrayList<game.player.droid.Droid> list = GameScene.getDroids();
+      if (list == null) {
+         return;
+      }
+
+      for (int i = 0; i < list.size(); i++) {
+         game.player.droid.Droid droid = list.get(i);
+         game.util.Point p = droid.getPosition();
+         ByteArrayOutputStream bos = new ByteArrayOutputStream(18);
+         DataOutputStream d = new DataOutputStream(bos);
+
+         try {
+            d.writeByte(MSG_DROID_SYNC);
+            d.writeByte(i);
+            d.writeFloat(p.x);
+            d.writeFloat(p.y);
+            d.writeFloat(p.z);
+            d.writeByte(droid.getState().ordinal());
+            d.writeByte(droid.isWorking() ? 1 : 0);
+         } catch (IOException e) {
+            return;
+         }
+
+         queueRaw(bos.toByteArray());
+      }
+   }
+/** Applies a world state event received from the other peer (game thread). */
    private static void applyWorldMessage(byte[] frame) {
       if (frame.length < 1) {
          return;
@@ -877,6 +1613,297 @@ public final class NetSession {
                GameScene.spawnRemoteSeafloorBase(pos);
                break;
             }
+            case MSG_ITEM_SPAWN: {
+               int typeOrdinal = d.readByte();
+               float x = d.readFloat();
+               float y = d.readFloat();
+               float z = d.readFloat();
+               ItemType[] types = ItemType.values();
+               if (typeOrdinal >= 0 && typeOrdinal < types.length) {
+                  game.environment.EnvironmentManager.applyRemoteItemSpawn(new Point(x, y, z), types[typeOrdinal]);
+               }
+
+               break;
+            }
+            case MSG_ITEM_TAKE: {
+               int typeOrdinal = d.readByte();
+               float x = d.readFloat();
+               float y = d.readFloat();
+               float z = d.readFloat();
+               ItemType[] types = ItemType.values();
+               if (typeOrdinal >= 0 && typeOrdinal < types.length) {
+                  game.environment.EnvironmentManager.applyRemoteItemTake(new Point(x, y, z), types[typeOrdinal]);
+               }
+
+               break;
+            }
+            case MSG_CHEST_INVENTORY: {
+               int tileX = d.readInt();
+               int tileZ = d.readInt();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               // Remember the snapshot so this side does not echo it straight back.
+               chestSyncTileX = tileX;
+               chestSyncTileZ = tileZ;
+               chestSyncBytes = bytes;
+               applyChestInventory(tileX, tileZ, inv);
+               break;
+            }
+            case MSG_BASE_INVENTORY: {
+               int baseIdx = d.readByte();
+               int bx = d.readByte();
+               int by = d.readByte();
+               int bz = d.readByte();
+               int typeOrdinal = d.readByte();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               baseSyncIdx = baseIdx;
+               baseSyncX = bx;
+               baseSyncY = by;
+               baseSyncZ = bz;
+               baseSyncType = typeOrdinal;
+               baseSyncBytes = bytes;
+               ArrayList<SeafloorBase> bases = GameScene.getSeafloorBases();
+               if (bases != null && baseIdx >= 0 && baseIdx < bases.size()) {
+                  game.seafloorBase.util.BlockType[] types = game.seafloorBase.util.BlockType.values();
+                  if (typeOrdinal >= 0 && typeOrdinal < types.length) {
+                     bases.get(baseIdx).getOctree().applyRemoteElementInventory(bx, by, bz, types[typeOrdinal], inv);
+                  }
+               }
+
+               break;
+            }
+            case MSG_CHAT: {
+               int len = d.readInt();
+               if (len <= 0 || len > 8192) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               game.gui.ChatHud.showMessage(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+               break;
+            }
+            case MSG_TOMB_SPAWN: {
+               float px = d.readFloat();
+               float py = d.readFloat();
+               float pz = d.readFloat();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               GameScene.worldChest = new game.player.WorldChest(inv, new game.util.Point(px, py, pz));
+               break;
+            }
+            case MSG_TOMB_INVENTORY: {
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               tombSyncBytes = bytes;
+               if (GameScene.worldChest != null && GameScene.worldChest.getInventory() != null) {
+                  copyInventoryContents(inv, GameScene.worldChest.getInventory());
+               }
+
+               break;
+            }
+            case MSG_OBJ_SPAWN: {
+               int kind = d.readByte();
+               float x = d.readFloat();
+               float y = d.readFloat();
+               float z = d.readFloat();
+               GameScene.applyRemoteOutsideObject(kind, x, y, z);
+               break;
+            }
+            case MSG_OBJ_INVENTORY: {
+               float ox = d.readFloat();
+               float oz = d.readFloat();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               objSyncX = ox;
+               objSyncZ = oz;
+               objSyncBytes = bytes;
+               java.util.ArrayList<game.outsideObj.OutsideObj> objs = GameScene.getOutsideObjects();
+               if (objs != null) {
+                  for (int i = 0; i < objs.size(); i++) {
+                     game.util.Point p = objs.get(i).getPosition();
+                     if (Math.abs(p.x - ox) < 0.05F && Math.abs(p.z - oz) < 0.05F) {
+                        if (objs.get(i) instanceof game.outsideObj.Extractor) {
+                           copyInventoryContents(inv, ((game.outsideObj.Extractor)objs.get(i)).getInventory());
+                        }
+
+                        break;
+                     }
+                  }
+               }
+
+               break;
+            }
+            case MSG_DROID_SPAWN: {
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               try {
+                  GameScene.spawnDroid((game.player.droid.Droid)deserialize(bytes), false);
+               } catch (Exception e) {
+                  // Unreadable droid payload: ignore.
+               }
+
+               break;
+            }
+            case MSG_DROID_INVENTORY: {
+               int droidIdx = d.readByte();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               Inventory inv;
+               try {
+                  inv = (Inventory)deserialize(bytes);
+               } catch (Exception e) {
+                  break;
+               }
+
+               droidSyncIdx = droidIdx;
+               droidSyncBytes = bytes;
+               java.util.ArrayList<game.player.droid.Droid> droidList = GameScene.getDroids();
+               if (droidList != null && droidIdx >= 0 && droidIdx < droidList.size()) {
+                  copyInventoryContents(inv, droidList.get(droidIdx).getInventory());
+               }
+
+               break;
+            }
+            case MSG_DROID_STATE: {
+               int droidIdx = d.readByte();
+               int cmd = d.readByte();
+               java.util.ArrayList<game.player.droid.Droid> droidList = GameScene.getDroids();
+               if (droidList != null && droidIdx >= 0 && droidIdx < droidList.size()) {
+                  game.player.droid.Droid droid = droidList.get(droidIdx);
+                  if (cmd == -1) {
+                     droid.applyRemoteFixed();
+                  } else {
+                     game.player.droid.DroidState[] states = game.player.droid.DroidState.values();
+                     if (cmd >= 0 && cmd < states.length) {
+                        droid.applyRemoteDroidState(states[cmd]);
+                     }
+                  }
+               }
+
+               break;
+            }
+            case MSG_DROID_SYNC: {
+               int droidIdx = d.readByte();
+               float dx = d.readFloat();
+               float dy = d.readFloat();
+               float dz = d.readFloat();
+               int stateOrdinal = d.readByte();
+               boolean isWorking = d.readByte() != 0;
+               java.util.ArrayList<game.player.droid.Droid> droidList = GameScene.getDroids();
+               if (droidList != null && droidIdx >= 0 && droidIdx < droidList.size()) {
+                  droidList.get(droidIdx).applyRemoteState(dx, dy, dz, stateOrdinal, isWorking);
+               }
+
+               break;
+            }
+            case MSG_WATER: {
+               int baseIdx = d.readByte();
+               int len = d.readInt();
+               if (len <= 0 || len > MAX_FRAME_SIZE) {
+                  break;
+               }
+
+               byte[] bytes = new byte[len];
+               d.readFully(bytes);
+               ArrayList<SeafloorBase> waterBases = GameScene.getSeafloorBases();
+               if (waterBases != null && baseIdx >= 0 && baseIdx < waterBases.size() && waterBases.get(baseIdx).getOctree() != null) {
+                  waterBases.get(baseIdx).getOctree().applyWaterParams(bytes);
+               }
+
+               break;
+            }
+            case MSG_SUB_SPAWN: {
+               float sx = d.readFloat();
+               float sy = d.readFloat();
+               float sz = d.readFloat();
+               GameScene.spawnSubmarine(new Point(sx, sy, sz), false);
+               break;
+            }
+            case MSG_POT_STATE: {
+               int baseIdx = d.readByte();
+               int bx = d.readByte();
+               int by = d.readByte();
+               int bz = d.readByte();
+               int cropIdx = d.readByte();
+               ArrayList<SeafloorBase> potBases = GameScene.getSeafloorBases();
+               if (potBases != null && baseIdx >= 0 && baseIdx < potBases.size() && potBases.get(baseIdx).getOctree() != null) {
+                  potBases.get(baseIdx).getOctree().applyPotState(bx, by, bz, cropIdx);
+               }
+
+               break;
+            }
             case MSG_BLOCK_OP: {
                int baseIdx = d.readByte();
                int bx = d.readByte();
@@ -900,6 +1927,39 @@ public final class NetSession {
       }
    }
 
+   /**
+    * Overwrites the peer's copy of a chest inventory in place. The chest element
+    * and the world record share this object, so the GUI, the lid state and the
+    * map icon all update from the same mutation.
+    */
+   private static void applyChestInventory(int tileX, int tileZ, Inventory source) {
+      if (Loading.worldManager == null || source == null) {
+         return;
+      }
+
+      game.world.structure.GamePlayElmt elmt = Loading.worldManager.getGamePlayElmtAt(tileX, tileZ);
+      if (elmt == null || elmt.getType() != game.world.structure.GamePlayType.CHEST) {
+         return;
+      }
+
+      Inventory target = elmt.getInventory();
+      if (target == null) {
+         elmt.setInventory(source);
+         return;
+      }
+
+      copyInventoryContents(source, target);
+   }
+
+   /** Replaces the target inventory's contents (and internal state) with the source's copy. */
+   public static void copyInventoryContents(Inventory source, Inventory target) {
+      if (source == null || target == null) {
+         return;
+      }
+
+      target.copyStateFrom(source);
+   }
+
    // ------------------------------------------------------------------
    // Game thread helpers
    // ------------------------------------------------------------------
@@ -910,6 +1970,19 @@ public final class NetSession {
       pendingSpawn = false;
       welcomeSent = false;
       pendingWorldOps.clear();
+      if (remoteSubIdx >= 0 && GameScene.getSubmarines() != null && remoteSubIdx < GameScene.getSubmarines().size()) {
+         GameScene.getSubmarines().get(remoteSubIdx).applyRemoteIdle();
+      }
+
+      remoteMoney = 0;
+      remoteSubIdx = -1;
+      objSyncX = Float.NaN;
+      objSyncZ = Float.NaN;
+      objSyncBytes = null;
+      droidSyncIdx = -1;
+      droidSyncBytes = null;
+      waterTimer = 0.0F;
+      droidTimer = 0.0F;
 
       if (role == Role.CLIENT) {
          boolean inGame = isGameplayState() || Main.getGameState() == GameState.LOADING_GAME;
@@ -974,5 +2047,18 @@ public final class NetSession {
       incoming.clear();
       outgoing.clear();
       pendingWorldOps.clear();
+      if (remoteSubIdx >= 0 && GameScene.getSubmarines() != null && remoteSubIdx < GameScene.getSubmarines().size()) {
+         GameScene.getSubmarines().get(remoteSubIdx).applyRemoteIdle();
+      }
+
+      remoteMoney = 0;
+      remoteSubIdx = -1;
+      objSyncX = Float.NaN;
+      objSyncZ = Float.NaN;
+      objSyncBytes = null;
+      droidSyncIdx = -1;
+      droidSyncBytes = null;
+      waterTimer = 0.0F;
+      droidTimer = 0.0F;
    }
 }

@@ -21,12 +21,29 @@ public final class ItemPickup {
    private float spawnProtection;
 
    public ItemPickup(Point position, ItemType itemType) {
+      this(position, itemType, false);
+   }
+
+   /**
+    * @param still when true the pickup gets no random scatter velocity; used for
+    *              copies received from the other peer so both peers keep the
+    *              item at the same spot for position-based take matching.
+    */
+   public ItemPickup(Point position, ItemType itemType, boolean still) {
       this.itemType = itemType;
       this.position = position.copy();
-      this.velocity = new Point((Math.random() - 0.5) * 100.0, 0.0, (Math.random() - 0.5) * 100.0);
+      this.velocity = still ? new Point() : new Point((Math.random() - 0.5) * 100.0, 0.0, (Math.random() - 0.5) * 100.0);
       this.lifetime = 120.0F;
       this.bobPhase = (float)(Math.random() * Math.PI * 2.0);
       this.spawnProtection = 0.3F;
+   }
+
+   public final Point getPosition() {
+      return this.position;
+   }
+
+   public final ItemType getItemType() {
+      return this.itemType;
    }
 
    public final void update(float delta) {
@@ -54,6 +71,7 @@ public final class ItemPickup {
          if (groundHeight > 10.0F) {
             this.velocity.scale(100000.0F / groundHeight * delta);
          } else if (GameScene.avatar.pickupItem(new Item(this.itemType))) {
+            game.net.NetSession.sendItemTake(this.position, this.itemType);
             this.lifetime = 0.0F;
          }
 

@@ -71,6 +71,7 @@ public class Droid implements Serializable {
                if (GameScene.avatar.hasResources(new Item(ItemType.ENERGY_SPHERE, 5))) {
                   PlayerHud.addPickupNotification(ItemType.ENERGY_SPHERE, -5);
                   this.working = true;
+                  game.net.NetSession.sendDroidFixed(getDroidIndex());
                   SoundManager.playSound(SoundManager.sfxPowerOn, this.ai.getPosition(), 0.5F, 0.5F);
                   return;
                }
@@ -79,7 +80,9 @@ public class Droid implements Serializable {
             }
          }
       } else {
-         this.ai.update(delta);
+         if (!game.net.NetSession.isClientMirror()) {
+            this.ai.update(delta);
+         }
 
          switch (this.ai.getState()) {
             case NAVIGATING:
@@ -96,11 +99,12 @@ public class Droid implements Serializable {
                   InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Call the droid", this.inventory);
                   if (GameScene.avatar.isInteractPressed()) {
                      this.ai.setState(DroidState.ATTACKING);
+                     game.net.NetSession.sendDroidState(getDroidIndex(), DroidState.ATTACKING.ordinal());
                   }
                }
                break;
             case ATTACKING:
-               if (GameScene.avatar.getCameraPos().distanceTo(this.ai.getPosition()) < 30.0F) {
+               if (!game.net.NetSession.isClientMirror() && GameScene.avatar.getCameraPos().distanceTo(this.ai.getPosition()) < 30.0F) {
                   this.ai.setState(DroidState.HARVESTING);
                }
                break;
@@ -109,15 +113,16 @@ public class Droid implements Serializable {
                   InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Open droid inventory | " + InputManager.getKeyName("Go down") + " - Sleep mode", this.inventory);
                   if (GameScene.avatar.isInteractPressed()) {
                      Main.gameState = GameState.INVENTORY;
-                     InventoryHud.setInventory(this.inventory);
+                     InventoryHud.setDroidInventory(this.inventory, getDroidIndex());
                   }
 
                   if (GameScene.avatar.isDescendPressed()) {
                      this.ai.setState(DroidState.FOLLOWING);
+                     game.net.NetSession.sendDroidState(getDroidIndex(), DroidState.FOLLOWING.ordinal());
                   }
                }
 
-               if (GameScene.avatar.getCameraPos().distanceTo(this.ai.getPosition()) >= 100.0F) {
+               if (!game.net.NetSession.isClientMirror() && GameScene.avatar.getCameraPos().distanceTo(this.ai.getPosition()) >= 100.0F) {
                   this.ai.setState(DroidState.IDLE);
                }
                break;
@@ -126,6 +131,7 @@ public class Droid implements Serializable {
                   InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Wake up", this.inventory);
                   if (GameScene.avatar.isInteractPressed()) {
                      this.ai.setState(DroidState.IDLE);
+                     game.net.NetSession.sendDroidState(getDroidIndex(), DroidState.IDLE.ordinal());
                      SoundManager.playSound(SoundManager.sfxPowerOn, this.ai.getPosition(), 0.5F, 0.5F);
                   }
                }
@@ -150,7 +156,7 @@ public class Droid implements Serializable {
    }
 
    public final void render(int droidIndex) {
-      if (!(this.ai.getPosition().distanceTo(GameScene.avatar.getCameraPos()) > DepthAtmosphere.getFogDistance() * 1.5F)) {
+      if (GameScene.avatar != null && !(this.ai.getPosition().distanceTo(GameScene.avatar.getCameraPos()) > DepthAtmosphere.getFogDistance() * 1.5F)) {
          Point eyeColor = new Point(1.0F, 1.0F, 1.0F);
          switch (droidIndex % 4) {
             case 0:
@@ -217,5 +223,41 @@ public class Droid implements Serializable {
 
    public final boolean isWorking() {
       return this.working;
+   }
+
+   /** Position of this droid in GameScene's list, or -1 when not registered. */
+   private int getDroidIndex() {
+      java.util.ArrayList<Droid> list = GameScene.getDroids();
+      return list == null ? -1 : list.indexOf(this);
+   }
+
+   public final Inventory getInventory() {
+      return this.inventory;
+   }
+
+   public final DroidState getState() {
+      return this.ai.getState();
+   }
+
+   /** Network: the peer ordered this droid into another mode. */
+   public final void applyRemoteDroidState(DroidState newState) {
+      this.ai.setState(newState);
+   }
+
+   /** Network: the peer repaired this droid (their energy spheres were spent). */
+   public final void applyRemoteFixed() {
+      this.working = true;
+      SoundManager.playSound(SoundManager.sfxPowerOn, this.getPosition(), 0.5F, 0.5F);
+   }
+
+   /** Network mirror: the host's authoritative position, mode and working flag. */
+   public final void applyRemoteState(float x, float y, float z, int stateOrdinal, boolean isWorking) {
+      this.ai.applyRemotePos(x, y, z);
+      DroidState[] states = DroidState.values();
+      if (stateOrdinal >= 0 && stateOrdinal < states.length && this.ai.getState() != states[stateOrdinal]) {
+         this.ai.setState(states[stateOrdinal]);
+      }
+
+      this.working = isWorking;
    }
 }

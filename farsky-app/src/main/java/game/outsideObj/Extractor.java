@@ -62,6 +62,14 @@ public class Extractor extends OutsideObj {
       }
    }
 
+   public final ExtractorType getExtractorType() {
+      return this.extractorType;
+   }
+
+   public final ExtractorInventory getInventory() {
+      return this.inventory;
+   }
+
    @Override
    public final void tick(float delta) {
       this.extractTimer += delta;
@@ -92,7 +100,7 @@ public class Extractor extends OutsideObj {
 
       if (this.pendingOpen) {
          Main.gameState = GameState.INVENTORY;
-         InventoryHud.setInventory(this.inventory);
+         InventoryHud.setOutsideObjInventory(this.inventory, this.pos.x, this.pos.z);
          this.pendingOpen = false;
       }
    }

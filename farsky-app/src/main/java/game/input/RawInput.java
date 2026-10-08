@@ -12,6 +12,8 @@ import org.lwjgl.opengl.Display;
 
 public final class RawInput {
    public static boolean[] keys = new boolean[68836];
+   // Printable characters typed this frame (layout aware, incl. Cyrillic).
+   public static final java.util.ArrayList<Character> typedChars = new java.util.ArrayList<>();
    public static boolean rightMouseHeld = false;
    public static boolean leftMouseHeld = false;
    public static boolean rightMouseDown = false;
@@ -82,6 +84,10 @@ public final class RawInput {
       while (Keyboard.next()) {
          if (Keyboard.getEventKeyState()) {
             keys[Keyboard.getEventKey()] = true;
+            char typed = Keyboard.getEventCharacter();
+            if (typed >= ' ') {
+               typedChars.add(typed);
+            }
          } else {
             keys[Keyboard.getEventKey()] = false;
          }

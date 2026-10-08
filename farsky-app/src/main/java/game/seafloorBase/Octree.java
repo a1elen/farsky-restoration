@@ -12,6 +12,7 @@ import game.inventory.InventoryElmtType;
 import game.inventory.InventoryHud;
 import game.inventory.Item;
 import game.inventory.ItemType;
+import game.inventory.types.Inventory;
 import game.manager.GameScene;
 import game.manager.GameState;
 import game.net.NetSession;
@@ -777,6 +778,67 @@ public class Octree implements Serializable {
       return candidate;
    }
 
+   /** Network: crop index used on the wire (-1 = empty pot). */
+   private static int cropIndexOf(ItemType itemType) {
+      if (itemType == ItemType.POTATO) {
+         return 0;
+      }
+
+      if (itemType == ItemType.CARROT_SEED) {
+         return 1;
+      }
+
+      if (itemType == ItemType.GREEN_BEAN) {
+         return 2;
+      }
+
+      return -1;
+   }
+
+   private static ItemType cropFromIndex(int index) {
+      switch (index) {
+         case 0:
+            return ItemType.POTATO;
+         case 1:
+            return ItemType.CARROT_SEED;
+         case 2:
+            return ItemType.GREEN_BEAN;
+         default:
+            return null;
+      }
+   }
+
+   /**
+    * Network: seeds (cropIdx >= 0) or clears (cropIdx < 0) the plant pot at the
+    * given block; growth then continues locally on both sides at the same rate.
+    */
+   public final void applyPotState(int bx, int by, int bz, int cropIdx) {
+      if (bx < 0 || bx > 31 || by < 0 || by > 7 || bz < 0 || bz > 31) {
+         return;
+      }
+
+      Block block = this.blocks[bx][by][bz];
+      if (block == null || !block.hasElement(BlockType.PLANT_POT)) {
+         return;
+      }
+
+      Element pot = block.getElement(BlockType.PLANT_POT);
+      if (pot == null || pot.inventory == null) {
+         return;
+      }
+
+      if (cropIdx < 0) {
+         pot.inventory.clearStorage();
+         pot.setParam(0.0F);
+      } else {
+         ItemType crop = cropFromIndex(cropIdx);
+         if (crop != null && pot.inventory.isEmpty()) {
+            pot.inventory.addItem(new Item(crop));
+            pot.setParam(0.05F);
+         }
+      }
+   }
+
    private static void seedPlantPot(ItemType itemType, Element element) {
       element.inventory.addItem(new Item(itemType));
       element.setParam(0.05F);
@@ -791,6 +853,7 @@ public class Octree implements Serializable {
                InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Plant " + GameScene.avatar.getSelectedItem().getType().getText(), null);
                if (GameScene.avatar.isInteractPressed()) {
                   seedPlantPot(GameScene.avatar.getSelectedItem().getType(), this.highlightedElement.element);
+                   game.net.NetSession.sendPotState(this, this.highlightedElement.block.getGridX(), this.highlightedElement.block.getGridY(), this.highlightedElement.block.getGridZ(), cropIndexOf(GameScene.avatar.getSelectedItem().getType()));
                   GameScene.avatar.consumeSelectedItem();
                }
             }
@@ -815,6 +878,7 @@ public class Octree implements Serializable {
 
                   if (harvested) {
                      this.highlightedElement.element.inventory.clearStorage();
+                     game.net.NetSession.sendPotState(this, this.highlightedElement.block.getGridX(), this.highlightedElement.block.getGridY(), this.highlightedElement.block.getGridZ(), -1);
                      this.highlightedElement.element.setParam(0.0F);
                   }
                }
@@ -846,7 +910,7 @@ public class Octree implements Serializable {
             InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Use " + workshopName, this.highlightedElement.element.inventory);
             if (GameScene.avatar.isInteractPressed()) {
                Main.gameState = GameState.INVENTORY;
-               InventoryHud.setInventory(this.highlightedElement.element.inventory);
+               this.openHighlightedInventory();
             }
          }
 
@@ -861,7 +925,7 @@ public class Octree implements Serializable {
          if (this.openingChest != null && (this.openingChest.getBlockType() == BlockType.CHEST || this.openingChest.getBlockType() == BlockType.LARGE_CHEST)) {
             if (this.openingChest.getParam() == 1.0F) {
                Main.gameState = GameState.INVENTORY;
-               InventoryHud.setInventory(this.highlightedElement.element.inventory);
+               this.openHighlightedInventory();
                this.chestOpening = false;
             }
 
@@ -876,7 +940,7 @@ public class Octree implements Serializable {
             InteractionHint.setInteractionTarget(InputManager.getKeyName("Interaction") + " - Use Cooker", this.highlightedElement.element.inventory);
             if (GameScene.avatar.isInteractPressed()) {
                Main.gameState = GameState.INVENTORY;
-               InventoryHud.setInventory(this.highlightedElement.element.inventory);
+               this.openHighlightedInventory();
             }
          }
       }
@@ -917,6 +981,20 @@ public class Octree implements Serializable {
          for (int i = 0; i < nearDoors.size(); i++) {
             Element door = nearDoors.get(i).getElement(BlockType.DOOR);
             door.setParam(Math.min(door.getParam() + delta * 2.0F, 1.0F));
+         }
+      }
+
+      // The peer opens doors by standing next to them too: run the same
+      // proximity rule on their position so both sides animate and collide
+      // identically without extra messages.
+      game.net.RemotePlayer remotePlayer = game.net.NetSession.getRemotePlayer();
+      if (remotePlayer != null) {
+         ArrayList<Block> remoteDoors = this.findNearbyBlocksWithElement(remotePlayer.getRenderPos().minus(this.pos), BlockType.DOOR);
+         if (remoteDoors != null) {
+            for (int i = 0; i < remoteDoors.size(); i++) {
+               Element door = remoteDoors.get(i).getElement(BlockType.DOOR);
+               door.setParam(Math.min(door.getParam() + delta * 2.0F, 1.0F));
+            }
          }
       }
    }
@@ -970,6 +1048,43 @@ public class Octree implements Serializable {
       return result.size() > 0 ? result : null;
    }
 
+   /** Serializes every water level element's fill for MSG_WATER (0..255 per cell). */
+   public final byte[] serializeWaterParams() {
+      byte[] data = new byte[32 * 8 * 32];
+
+      for (int x = 0; x < 32; x++) {
+         for (int y = 0; y < 8; y++) {
+            for (int z = 0; z < 32; z++) {
+               Block block = this.blocks[x][y][z];
+               if (block != null && block.hasElement(BlockType.WATER_LEVEL)) {
+                  float fill = block.getElement(BlockType.WATER_LEVEL).getParam();
+                  data[(x * 8 + y) * 32 + z] = (byte)(Math.min(1.0F, Math.max(0.0F, fill)) * 255.0F);
+               }
+            }
+         }
+      }
+
+      return data;
+   }
+
+   /** Applies the host's water fill snapshot; the local flood sim keeps running. */
+   public final void applyWaterParams(byte[] data) {
+      if (data == null || data.length != 32 * 8 * 32) {
+         return;
+      }
+
+      for (int x = 0; x < 32; x++) {
+         for (int y = 0; y < 8; y++) {
+            for (int z = 0; z < 32; z++) {
+               Block block = this.blocks[x][y][z];
+               if (block != null && block.hasElement(BlockType.WATER_LEVEL)) {
+                  block.getElement(BlockType.WATER_LEVEL).setParam((data[(x * 8 + y) * 32 + z] & 0xFF) / 255.0F);
+               }
+            }
+         }
+      }
+   }
+
    private static Point worldToBlockCoords(Point worldPos) {
       Point blockPos = new Point(worldPos.x / 10.0F, worldPos.y / 35.0F, worldPos.z / 10.0F);
       blockPos.add(16.5F, 0.0F, 16.5F);
@@ -1006,6 +1121,35 @@ public class Octree implements Serializable {
    }
 
    /** Applies a single build action performed by the other peer (game thread). */
+   /** Opens a highlighted element inventory with its multiplayer sync identity. */
+   private void openHighlightedInventory() {
+      InventoryHud.setInventory(
+         this.highlightedElement.element.inventory,
+         -1,
+         -1,
+         this.getBaseIndex(),
+         this.highlightedElement.block.getGridX(),
+         this.highlightedElement.block.getGridY(),
+         this.highlightedElement.block.getGridZ(),
+         this.highlightedElement.element.getBlockType().ordinal(),
+         false
+      );
+   }
+
+   /** Overwrites the peer's copy of a base element inventory in place. */
+   public final void applyRemoteElementInventory(int x, int y, int z, BlockType type, Inventory source) {
+      if (x < 0 || x >= 32 || y < 0 || y >= 8 || z < 0 || z >= 32 || this.blocks[x][y][z] == null || source == null) {
+         return;
+      }
+
+      Element element = this.blocks[x][y][z].getElement(type);
+      if (element == null || element.inventory == null) {
+         return;
+      }
+
+      NetSession.copyInventoryContents(source, element.inventory);
+   }
+
    public final void applyRemoteBlockOp(int x, int y, int z, int op, int param, int dirParam) {
       if (x < 0 || x >= 32 || y < 0 || y >= 8 || z < 0 || z >= 32 || this.blocks[x][y][z] == null) {
          return;

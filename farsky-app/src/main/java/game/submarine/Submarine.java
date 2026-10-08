@@ -430,6 +430,23 @@ public class Submarine implements Serializable {
       return this.submarineState.rot;
    }
 
+   /** Network mirror: the driving peer's position and tilt for this boat. */
+   public final void applyRemoteDrive(float x, float y, float z, float rotX, float rotY) {
+      this.submarineState.state.pos.x = x;
+      this.submarineState.state.pos.y = y;
+      this.submarineState.state.pos.z = z;
+      this.submarineState.rot.x = rotX;
+      this.submarineState.rot.y = rotY;
+      this.closed = true;
+      this.moving = false;
+   }
+
+   /** Network mirror: nobody is inside anymore, the canopy may open. */
+   public final void applyRemoteIdle() {
+      this.closed = false;
+      this.moving = false;
+   }
+
    public static AABB getBoundingBox() {
       return new AABB(new Point(0.0F, -20.0F, 15.0F), 50.0F, 50.0F, 60.0F);
    }

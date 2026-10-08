@@ -224,4 +224,11 @@ public class AIdroid implements Serializable {
    public final Point getPosition() {
       return this.pos;
    }
+
+   /** Network mirror: snaps the droid to the host's authoritative position. */
+   public final void applyRemotePos(float x, float y, float z) {
+      this.pos.x = x;
+      this.pos.y = y;
+      this.pos.z = z;
+   }
 }

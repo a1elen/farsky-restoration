@@ -199,6 +199,51 @@ public final class InputManager {
             }
             break;
          case PLAYING:
+            // Chat typing captures the keyboard: freeze avatar/sub/camera inputs.
+            if (game.gui.ChatHud.captureInput()) {
+               RawInput.mouseCaptured = false;
+               if (RenderManager.freeCam) {
+                  Camera.input.moveForward = false;
+                  Camera.input.moveBackward = false;
+                  Camera.input.strafeLeft = false;
+                  Camera.input.strafeRight = false;
+                  Camera.input.ascend = false;
+                  Camera.input.descend = false;
+               } else if (GameScene.avatar != null) {
+                  Submarine sub = GameScene.getActiveSubmarine();
+                  if (sub != null) {
+                     sub.input.moveForward = false;
+                     sub.input.moveBackward = false;
+                     sub.input.strafeLeft = false;
+                     sub.input.strafeRight = false;
+                     sub.input.ascend = false;
+                     sub.input.descend = false;
+                  }
+
+                  GameScene.avatar.input.moveForward = false;
+                  GameScene.avatar.input.moveBackward = false;
+                  GameScene.avatar.input.strafeLeft = false;
+                  GameScene.avatar.input.strafeRight = false;
+                  GameScene.avatar.input.ascend = false;
+                  GameScene.avatar.input.descend = false;
+                  GameScene.avatar.input.primaryMouseDown = false;
+                  GameScene.avatar.input.primaryMouseHeld = false;
+                  GameScene.avatar.input.secondaryMouseDown = false;
+                  GameScene.avatar.input.secondaryMouseHeld = false;
+                  GameScene.avatar.input.interact = false;
+                  GameScene.avatar.input.slot0 = false;
+                  GameScene.avatar.input.slot1 = false;
+                  GameScene.avatar.input.slot2 = false;
+                  GameScene.avatar.input.slot3 = false;
+                  GameScene.avatar.input.slot4 = false;
+                  GameScene.avatar.input.slot5 = false;
+                  GameScene.avatar.input.slot6 = false;
+                  GameScene.avatar.input.slot7 = false;
+               }
+
+               break;
+            }
+
             if (!RenderManager.freeCam && GameScene.avatar != null) {
                Submarine sub = GameScene.getActiveSubmarine();
                if (GameScene.avatar.isNavigating() && sub != null) {
@@ -254,6 +299,8 @@ public final class InputManager {
             RawInput.mouseCaptured = true;
             if (isKey(keyInventory, KeyState.JUST_PRESSED)) {
                InventoryHud.setHoveredItem(null);
+               // TAB always opens the plain inventory; container GUIs open by interacting.
+               InventoryHud.setInventory(null);
                Main.gameState = GameState.INVENTORY;
             }
 

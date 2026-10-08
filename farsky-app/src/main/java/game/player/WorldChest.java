@@ -75,7 +75,7 @@ public final class WorldChest {
 
             this.openAmount = 1.0F;
             Main.gameState = GameState.INVENTORY;
-            InventoryHud.setInventory(this.inventory);
+            InventoryHud.setInventory(this.inventory, true);
             this.isOpening = false;
             return;
          }
@@ -133,5 +133,9 @@ public final class WorldChest {
 
    public final Point getPosition() {
       return this.position;
+   }
+
+   public final Inventory getInventory() {
+      return this.inventory;
    }
 }

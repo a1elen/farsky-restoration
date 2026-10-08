@@ -10,6 +10,8 @@ import game.manager.Camera;
 import game.manager.GameScene;
 import game.manager.TextureManager;
 import game.manager.GameTime;
+import game.net.NetSession;
+import game.net.RemotePlayer;
 import game.outsideObj.Extractor;
 import game.outsideObj.HarpoonCannon;
 import game.player.PlayerInput;
@@ -408,6 +410,29 @@ public final class MapRenderer {
          GL11.glTranslatef(GameScene.worldChest.getPosition().x / 128.0F, GameScene.worldChest.getPosition().y, GameScene.worldChest.getPosition().z / 128.0F);
          renderIcon(ItemType.TOMB, billboarded);
          GL11.glPopMatrix();
+      }
+
+      // The other player: same cursor as the local one, tinted green.
+      RemotePlayer remotePlayer = NetSession.getRemotePlayer();
+      if (remotePlayer != null) {
+         Point remotePos = remotePlayer.getRenderPos();
+         GL11.glBindTexture(GL11.GL_TEXTURE_2D, TextureManager.mapCursor);
+         GL11.glColor4f(0.35F, 1.0F, 0.45F, 1.0F);
+         GL11.glPushMatrix();
+         GL11.glTranslatef(remotePos.x / 128.0F, remotePos.y, remotePos.z / 128.0F);
+         GL11.glRotatef(remotePlayer.getRenderYaw(), 0.0F, 1.0F, 0.0F);
+         GL11.glBegin(GL11.GL_QUADS);
+         GL11.glTexCoord2f(0.0F, 0.0F);
+         GL11.glVertex3f(-(38F / 15F), 0.0F, -(10F / 3F));
+         GL11.glTexCoord2f(1.0F, 0.0F);
+         GL11.glVertex3f(38F / 15F, 0.0F, -(10F / 3F));
+         GL11.glTexCoord2f(1.0F, 1.0F);
+         GL11.glVertex3f(38F / 15F, 0.0F, 1F / 3F);
+         GL11.glTexCoord2f(0.0F, 1.0F);
+         GL11.glVertex3f(-(38F / 15F), 0.0F, 1F / 3F);
+         GL11.glEnd();
+         GL11.glPopMatrix();
+         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       GL11.glEnable(GL11.GL_DEPTH_TEST);

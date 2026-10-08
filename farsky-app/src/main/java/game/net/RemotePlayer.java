@@ -26,6 +26,16 @@ public final class RemotePlayer {
    private float targetYaw;
    private float renderYaw;
    private boolean initialized = false;
+   private boolean navigating = false;
+
+   /** True while the peer is inside a submarine: their billboard is replaced by the boat. */
+   public final void setNavigating(boolean value) {
+      this.navigating = value;
+   }
+
+   public final boolean isNavigating() {
+      return this.navigating;
+   }
 
    public final void setTarget(float x, float y, float z, float yaw) {
       this.targetPos.x = x;
@@ -41,6 +51,10 @@ public final class RemotePlayer {
 
    public final Point getRenderPos() {
       return this.renderPos;
+   }
+
+   public final float getRenderYaw() {
+      return this.renderYaw;
    }
 
    public final void update(float delta) {
@@ -62,7 +76,7 @@ public final class RemotePlayer {
     * camera applied.
     */
    public final void render() {
-      if (!this.initialized) {
+      if (!this.initialized || this.navigating) {
          return;
       }
 

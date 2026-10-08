@@ -147,6 +147,20 @@ public class CookerInventory extends Inventory {
    }
 
    @Override
+   public void copyStateFrom(Inventory source) {
+      if (!(source instanceof CookerInventory)) {
+         return;
+      }
+
+      super.copyStateFrom(source);
+      CookerInventory src = (CookerInventory)source;
+      copyCells(src.food, this.food);
+      copyCells(src.cookedFood, this.cookedFood);
+      this.cooking = src.cooking;
+      this.fireTimer = src.fireTimer;
+   }
+
+   @Override
    public final boolean isEmpty() {
       return this.storageArray.isEmpty() && this.food.isEmpty() && this.cookedFood.isEmpty();
    }

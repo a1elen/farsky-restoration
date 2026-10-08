@@ -398,7 +398,7 @@ public final class Avatar {
                      GameScene.spawnOutsideObject(new Lamp(this.placementTarget));
                      break;
                   case DROID:
-                     GameScene.spawnDroid(new Droid(this.placementTarget, true));
+                     GameScene.spawnDroid(new Droid(this.placementTarget, true), true);
 				default:
 					break;
                }
@@ -551,7 +551,9 @@ public final class Avatar {
             Main.gameState = GameState.LOADING_MENU;
             MenuController.currentMenuState = MenuState.MAIN;
          } else {
-            GameScene.worldChest = new WorldChest(new Inventory("Tomb Chest", this.inventory.takeAllItems()), this.currentState.state.pos);
+            Inventory tombInventory = new Inventory("Tomb Chest", this.inventory.takeAllItems());
+            GameScene.worldChest = new WorldChest(tombInventory, this.currentState.state.pos);
+            game.net.NetSession.sendTombSpawn(tombInventory, this.currentState.state.pos.x, this.currentState.state.pos.y, this.currentState.state.pos.z);
             this.currentState.respawn();
             Loading.reloadGame();
          }

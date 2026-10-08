@@ -17,6 +17,10 @@ import game.gui.dialog.DialogManager;
 import game.inventory.Item;
 import game.map.MapRenderer;
 import game.net.NetSession;
+import game.outsideObj.Extractor;
+import game.outsideObj.ExtractorType;
+import game.outsideObj.HarpoonCannon;
+import game.outsideObj.Lamp;
 import game.outsideObj.OutsideObj;
 import game.player.Avatar;
 import game.player.WorldChest;
@@ -909,6 +913,7 @@ public final class GameScene {
       submarines.add(new Submarine(pos.plus(0.0F, 50.0F, 0.0F)));
       if (consumeItem) {
          avatar.getInventory().consumeCurrentItem();
+         NetSession.sendSubmarineSpawn(pos.x, pos.y, pos.z);
       }
 
       submarineSpawnProgress = 0.0F;
@@ -929,6 +934,58 @@ public final class GameScene {
       SoundManager.playSound(SoundManager.sfxRisingFromFloor, pos, 0.5F);
    }
 
+   /** Kind + placement point of an outside object for MSG_OBJ_SPAWN. */
+   private static void sendSpawnFor(OutsideObj obj) {
+      int kind;
+      float x = obj.getPosition().x;
+      float z = obj.getPosition().z;
+      float y;
+      if (obj instanceof Extractor) {
+         kind = ((Extractor)obj).getExtractorType() == ExtractorType.STANDARD ? NetSession.OBJ_EXTRACTOR : NetSession.OBJ_EXTRACTOR_OVERPOWERED;
+         y = obj.getPosition().y + 4.0F;
+      } else if (obj instanceof HarpoonCannon) {
+         kind = NetSession.OBJ_HARPOON;
+         y = obj.getPosition().y - 15.0F;
+      } else if (obj instanceof Lamp) {
+         kind = NetSession.OBJ_LAMP;
+         y = obj.getPosition().y + 3.0F;
+      } else {
+         return;
+      }
+
+      NetSession.sendOutsideObjSpawn(kind, x, y, z);
+   }
+
+   /** Mirrors spawnOutsideObject for a peer-placed object: adds it without consuming local items. */
+   public static void applyRemoteOutsideObject(int kind, float x, float y, float z) {
+      Point placementPos = new Point(x, y, z);
+      OutsideObj obj;
+      switch (kind) {
+         case NetSession.OBJ_EXTRACTOR:
+            obj = new Extractor(placementPos, ExtractorType.STANDARD);
+            break;
+         case NetSession.OBJ_EXTRACTOR_OVERPOWERED:
+            obj = new Extractor(placementPos, ExtractorType.OVERPOWERED);
+            break;
+         case NetSession.OBJ_HARPOON:
+            obj = new HarpoonCannon(placementPos);
+            break;
+         case NetSession.OBJ_LAMP:
+            obj = new Lamp(placementPos);
+            break;
+         default:
+            return;
+      }
+
+      for (int i = 0; i < outsideObjects.size(); i++) {
+         if (outsideObjects.get(i).getPosition().x == obj.getPosition().x && outsideObjects.get(i).getPosition().z == obj.getPosition().z) {
+            return;
+         }
+      }
+
+      outsideObjects.add(obj);
+   }
+
    public static void spawnOutsideObject(OutsideObj obj) {
       for (int i = 0; i < outsideObjects.size(); i++) {
          if (outsideObjects.get(i).getPosition().x == obj.getPosition().x && outsideObjects.get(i).getPosition().z == obj.getPosition().z) {
@@ -937,6 +994,7 @@ public final class GameScene {
       }
 
       outsideObjects.add(obj);
+      sendSpawnFor(obj);
       avatar.getInventory().consumeCurrentItem();
       outsideObjSpawnProgress = 0.0F;
       Camera.addShake(0.5F);
@@ -955,9 +1013,12 @@ public final class GameScene {
       SoundManager.playSound(SoundManager.sfxRisingFromFloor, obj.getPosition(), 0.8F, 0.5F);
    }
 
-   public static void spawnDroid(Droid droid) {
+   public static void spawnDroid(Droid droid, boolean consumeItem) {
       droids.add(droid);
-      avatar.getInventory().consumeCurrentItem();
+      if (consumeItem) {
+         avatar.getInventory().consumeCurrentItem();
+         NetSession.sendDroidSpawn(droid);
+      }
       outsideObjSpawnProgress = 0.0F;
       Camera.addShake(0.5F);
 
@@ -1013,6 +1074,24 @@ public final class GameScene {
 
    public static ArrayList<Droid> getDroids() {
       return droids;
+   }
+
+   /**
+    * Late join: the host's current outside objects, droids and submarines
+    * replace whatever the local save produced.
+    */
+   public static void registerRemoteSession(ArrayList<OutsideObj> objects, ArrayList<Droid> droidList, ArrayList<Submarine> subList) {
+      if (objects != null) {
+         outsideObjects = objects;
+      }
+
+      if (droidList != null) {
+         droids = droidList;
+      }
+
+      if (subList != null) {
+         submarines = subList;
+      }
    }
 
    public static void save() {

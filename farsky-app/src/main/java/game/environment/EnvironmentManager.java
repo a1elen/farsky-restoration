@@ -17,6 +17,7 @@ import game.player.damage.Damage;
 import game.player.weapons.Arrow;
 import game.shader.Shaders;
 import game.util.Coord;
+import game.util.Point;
 import game.util.Segment;
 import game.util.State;
 import game.world.structure.GamePlayElmt;
@@ -291,6 +292,7 @@ public final class EnvironmentManager {
          return;
       }
 
+      game.net.NetSession.sendItemSpawn(pickup.getPosition(), pickup.getItemType());
       itemPickups.add(pickup);
    }
 
@@ -299,7 +301,52 @@ public final class EnvironmentManager {
          return;
       }
 
+      for (int i = 0; i < pickups.size(); i++) {
+         game.net.NetSession.sendItemSpawn(pickups.get(i).getPosition(), pickups.get(i).getItemType());
+      }
+
       itemPickups.addAll(pickups);
+   }
+
+   /** Spawns a pickup received from the other peer (never echoed back). */
+   public static void applyRemoteItemSpawn(Point pos, ItemType type) {
+      if (itemPickups == null || pos == null || type == null) {
+         return;
+      }
+
+      // Still copy: the sender's random scatter must not drift from the sync position.
+      itemPickups.add(new ItemPickup(pos, type, true));
+   }
+
+   /** Removes the pickup the other peer just collected; no loot is granted here. */
+   public static void applyRemoteItemTake(Point near, ItemType type) {
+      if (itemPickups == null || near == null || type == null) {
+         return;
+      }
+
+      int best = -1;
+      float bestDist = 300.0F * 300.0F;
+
+      for (int i = 0; i < itemPickups.size(); i++) {
+         ItemPickup pickup = itemPickups.get(i);
+         if (pickup.getItemType() != type) {
+            continue;
+         }
+
+         Point p = pickup.getPosition();
+         float dx = p.x - near.x;
+         float dy = p.y - near.y;
+         float dz = p.z - near.z;
+         float dist = dx * dx + dy * dy + dz * dz;
+         if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+         }
+      }
+
+      if (best >= 0) {
+         itemPickups.remove(best);
+      }
    }
 
    public static void addFlyingRock(FlyingRock rock) {
