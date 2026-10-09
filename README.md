@@ -1,6 +1,6 @@
 # FarSky Restoration Multiplayer
 
-Unofficial update for [FarSky](https://farsky-interactive.itch.io/farsky) that restores the game and adds **online co-op multiplayer** (using AI).
+Unofficial update for [FarSky](https://farsky-interactive.itch.io/farsky) that restores the game and adds **online co-op multiplayer**.
 
 ## Features
 
@@ -40,3 +40,4 @@ Everything is saved on the host: worlds in `save/`, per-player progress in `save
 
 * The original **FarSky** was made by its developers back in 2014 — thank you for an amazing game!
 * [AlbatorLaho](https://github.com/AlbatorLaho) for the original decompile this project is based on.
+* AI for making all the heavy work
