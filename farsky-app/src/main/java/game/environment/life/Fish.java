@@ -39,6 +39,113 @@ public abstract class Fish {
    protected float lockedHeight = -700.0F;
    protected Coord spawnCenter;
 
+   // ------------------------------------------------------------------
+   // Multiplayer: the host owns every fish, the client only mirrors.
+   // ------------------------------------------------------------------
+
+   /** Stable id handed out by the host; -1 while the fish is not networked. */
+   private int netId = -1;
+   /** True on the client: schooling AI is skipped, state comes from the host. */
+   protected boolean remoteControlled = false;
+   private Point netTargetPos = null;
+   private float netTargetRotX = 0.0F;
+   private float netTargetRotY = 0.0F;
+   private boolean netRotValid = false;
+   private boolean netSnapPending = false;
+
+   public final int getNetId() {
+      return this.netId;
+   }
+
+   public final void setNetId(int id) {
+      this.netId = id;
+   }
+
+   public final boolean isRemoteControlled() {
+      return this.remoteControlled;
+   }
+
+   /** Marks this fish as host driven: its schooling AI never runs locally. */
+   public final void beginRemoteControl() {
+      this.remoteControlled = true;
+   }
+
+   /** Applies one authoritative sample from the host: position and facing. */
+   public final void applyNetState(float px, float py, float pz, float rotX, float rotY) {
+      Point newPos = new Point(px, py, pz);
+      if (this.netTargetPos == null || this.position == null || this.position.distanceTo(newPos) > 400.0F) {
+         this.netSnapPending = true;
+      }
+
+      this.netTargetPos = newPos;
+      this.netTargetRotX = rotX;
+      this.netTargetRotY = rotY;
+      this.netRotValid = true;
+      if (this.prevDirection == null) {
+         this.prevDirection = new Point(0.0F, 0.0F, 1.0F);
+      }
+   }
+
+   /** Runs local schooling AI, or the mirrored transform when the host owns this fish. */
+   public final void tick(float delta) {
+      if (this.remoteControlled) {
+         this.netTick(delta);
+      } else {
+         this.update(delta);
+      }
+   }
+
+   /** Client: follows the host transform and keeps the model facing its swim direction. */
+   private void netTick(float delta) {
+      if (this.netTargetPos == null) {
+         return;
+      }
+
+      float k = (float)(1.0 - Math.exp(-8.0 * (double)delta));
+      Point prev = this.position.copy();
+      if (this.netSnapPending) {
+         this.position.set(this.netTargetPos);
+         this.netSnapPending = false;
+      } else {
+         this.position.x += (this.netTargetPos.x - this.position.x) * k;
+         this.position.y += (this.netTargetPos.y - this.position.y) * k;
+         this.position.z += (this.netTargetPos.z - this.position.z) * k;
+      }
+
+      this.velocity = this.position.minus(prev);
+
+      if (this.netRotValid) {
+         float yaw = this.netTargetRotY - this.rotation.y;
+         while (yaw > 180.0F) {
+            yaw -= 360.0F;
+         }
+
+         while (yaw < -180.0F) {
+            yaw += 360.0F;
+         }
+
+         this.rotation.x += (this.netTargetRotX - this.rotation.x) * k;
+         this.rotation.y += yaw * k;
+      }
+
+      this.onUpdate(delta);
+   }
+
+   /**
+    * Host side: applies a hit the client reported. The synthetic segment runs
+    * through the fish so the regular {@link #checkHit} logic (blood, death,
+    * loot, stats) resolves exactly as it would for a local swing.
+    */
+   public final Damage applyRemoteDamage(float amount) {
+      if (amount <= 0.0F) {
+         return new Damage();
+      }
+
+      ArrayList<Segment> segments = new ArrayList<>();
+      segments.add(new Segment(this.position.minus(1.0F, 1.0F, 1.0F), this.position.plus(1.0F, 1.0F, 1.0F)));
+      return this.checkHit(segments, new Damage(amount, game.player.damage.DamageType.NORMAL));
+   }
+
    public final void update(float delta) {
       if (this.speed < this.targetSpeed) {
          this.speed = this.speed + Math.min(delta * 10.0F, this.targetSpeed - this.speed);
@@ -115,7 +222,26 @@ public abstract class Fish {
    }
 
    public final boolean shouldRemove() {
-      return this.health <= 0.0F || new Coord(this.position.x, this.position.z).distanceTo(new Coord(Camera.getPosition().x, Camera.getPosition().z)) > ChunkManager.viewDistance * 1.2F;
+      if (this.remoteControlled) {
+         // Mirrored fish are dropped by the host's despawn message, not by this
+         // side's camera: they may well belong around the other player.
+         return false;
+      }
+
+      if (this.health <= 0.0F) {
+         return true;
+      }
+
+      Coord here = new Coord(this.position.x, this.position.z);
+      Coord localCam = new Coord(Camera.getPosition().x, Camera.getPosition().z);
+      float limit = ChunkManager.viewDistance * 1.2F;
+      if (here.distanceTo(localCam) <= limit) {
+         return false;
+      }
+
+      // Keep fish that only the joined player can see: they are synced to them.
+      Point peer = game.net.NetSession.getRemoteAggroPos();
+      return peer == null || here.distanceTo(new Coord(peer.x, peer.z)) > limit;
    }
 
    public final void fleeFrom(Point source, boolean faster) {
@@ -144,11 +270,14 @@ public abstract class Fish {
       if (hit) {
          EnvironmentManager.addBloodParticles(new BloodParticles(damage.getSource(), 7, this.getBloodType()));
          damage.accumulate(weaponDamage);
-         this.health = this.health - weaponDamage.getAmount();
-         if (this.health < 0.0F) {
-            this.health = 0.0F;
-            GameScene.stats.recordFishKilled();
-            EnvironmentManager.addItemPickups(this.getDrops());
+         // Mirrored copies leave health alone: the host applies the hit.
+         if (!this.remoteControlled) {
+            this.health = this.health - weaponDamage.getAmount();
+            if (this.health < 0.0F) {
+               this.health = 0.0F;
+               GameScene.stats.recordFishKilled();
+               EnvironmentManager.addItemPickups(this.getDrops());
+            }
          }
       }
 
@@ -157,5 +286,15 @@ public abstract class Fish {
 
    public FishType getFishType() {
       return this.fishType;
+   }
+
+   /** Live position, read by the host's state broadcast. */
+   public final Point getPos() {
+      return this.position;
+   }
+
+   /** Live model rotation (pitch/yaw in degrees), read by the state broadcast. */
+   public final Point getRotation() {
+      return this.rotation;
    }
 }

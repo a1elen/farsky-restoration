@@ -70,8 +70,11 @@ public final class OreDeposit extends ChunkElement {
       if (this.spawnKraken && this.inventory != null && this.inventory.getStorageArray().get(0, 0).getItem() != null && GameScene.enemyManager != null) {
          int existingKrakenCount = GameScene.enemyManager.countAtChunk(this.chunkX, this.chunkZ);
 
-         for (int i = 0; i < this.inventory.getStorageArray().get(0, 0).getItem().getCount() - existingKrakenCount; i++) {
-            GameScene.enemyManager.add(new Kraken(this.spawnPoint, this.chunkX, this.chunkZ, true));
+         // The client receives its krakens from the host instead of breeding them.
+         if (!game.net.NetSession.isClientMirror()) {
+            for (int i = 0; i < this.inventory.getStorageArray().get(0, 0).getItem().getCount() - existingKrakenCount; i++) {
+               GameScene.enemyManager.add(new Kraken(this.spawnPoint, this.chunkX, this.chunkZ, true));
+            }
          }
 
          this.spawnKraken = false;

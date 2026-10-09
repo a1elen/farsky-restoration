@@ -54,6 +54,8 @@ public final class Kraken extends Enemy {
    private Point spawnPos;
    private int chunkX;
    private int chunkZ;
+   /** Client: local charge cadence while mirroring a host kraken. */
+   private float remoteHitCooldown = 0.0F;
 
    public Kraken(Point spawnPos, int chunkX, int chunkZ, boolean isDormant) {
       this.type = EnemyType.KRAKEN;
@@ -96,6 +98,9 @@ public final class Kraken extends Enemy {
    @Override
    public final void update(float deltaTime) {
       this.aggressive = this.krakenState != KrakenState.DORMANT && this.krakenState != KrakenState.ROAMING;
+      this.updateCombatFocus();
+      Point focus = this.getCombatFocus();
+      boolean focusInside = this.focusIsLocalAvatar() && GameScene.avatar.isInside();
 
       if (this.health == 0.0F) {
          this.krakenState = KrakenState.IDLE;
@@ -174,7 +179,7 @@ public final class Kraken extends Enemy {
                   }
                }
 
-               if (nearbyBases.size() > 0 && (GameScene.avatar.isInside() || GameScene.avatar.isInSeafloorBase() || !(Math.random() < 0.33F))) {
+               if (nearbyBases.size() > 0 && (focusInside || (GameScene.avatar != null && GameScene.avatar.isInSeafloorBase()) || !(Math.random() < 0.33F))) {
                   this.targetBase = GameScene.getSeafloorBases().get(nearbyBases.get((int)(nearbyBases.size() * Math.random())));
                   this.baseTarget = this.targetBase.getInteractionPoint();
                   this.krakenState = KrakenState.TARGETING_BASE;
@@ -196,11 +201,14 @@ public final class Kraken extends Enemy {
                this.tentacles.get(i).moveToAngle(-20.0F, deltaTime, 200.0F);
             }
 
-            this.navigator.trySetTarget(GameScene.avatar.getCameraPos());
+            if (focus != null) {
+               this.navigator.trySetTarget(focus);
+            }
+
             this.navigator.navigate(deltaTime, 300.0F);
             this.position = this.navigator.getPosition();
             this.timer += deltaTime;
-            if (this.timer >= 6.0F || this.wasHit || GameScene.avatar.isInside()) {
+            if (this.timer >= 6.0F || this.wasHit || focusInside) {
                this.krakenState = KrakenState.IDLE;
                this.timer = 0.0F;
             }
@@ -241,11 +249,13 @@ public final class Kraken extends Enemy {
 
       if (this.krakenState != KrakenState.ROAMING) {
          if (this.krakenState == KrakenState.TARGETING_BASE) {
-            this.steerToward(GameScene.avatar.getCameraPos(), 400.0F);
+            if (focus != null) {
+               this.steerToward(focus, 400.0F);
+            }
          } else if (this.krakenState == KrakenState.DORMANT) {
             this.steerToward(this.spawnPos, 150.0F);
-         } else {
-            this.steerToward(GameScene.avatar.getCameraPos(), 300.0F);
+         } else if (focus != null) {
+            this.steerToward(focus, 300.0F);
          }
       }
 
@@ -262,6 +272,96 @@ public final class Kraken extends Enemy {
          target = dir.scaled(0.03F).plus(this.navigator.getDirection().scaled(0.97F));
          target.normalize();
          this.navigator.setDirection(target);
+      }
+   }
+
+   // ------------------------------------------------------------------
+   // Host-authoritative mirror (client side)
+   // ------------------------------------------------------------------
+
+   @Override
+   protected EnemyNavigator netNavigator() {
+      return this.navigator;
+   }
+
+   @Override
+   protected void remoteTransform(float deltaTime) {
+      Point target = this.netTargetPosition();
+      if (target == null) {
+         return;
+      }
+
+      float k = netLerpFactor(deltaTime);
+      boolean snap = this.netTakeSnap(this.position.distanceTo(target));
+      if (snap) {
+         this.position.set(target);
+      } else {
+         this.position.x += (target.x - this.position.x) * k;
+         this.position.y += (target.y - this.position.y) * k;
+         this.position.z += (target.z - this.position.z) * k;
+      }
+
+      this.navigator.setPosition(this.position);
+      Point dir = this.netDirectionToward(this.navigator.getDirection(), snap, k);
+      if (dir != null) {
+         this.navigator.setDirection(dir);
+      }
+
+      this.position = this.navigator.getPosition();
+      if (!this.dead) {
+         SoundManager.setLoopingSourcePosition(this.soundSource, this.position);
+      }
+   }
+
+   @Override
+   protected void remoteAfterTransform(float deltaTime) {
+      float tentacleAngle = -10.0F;
+      float tentacleSpeed = 100.0F;
+      if (this.krakenState == KrakenState.RISING) {
+         tentacleAngle = 30.0F;
+      } else if (this.krakenState == KrakenState.CHARGING || this.krakenState == KrakenState.TARGETING_BASE) {
+         tentacleAngle = -20.0F;
+         tentacleSpeed = 200.0F;
+      }
+
+      for (int i = 0; i < this.tentacles.size(); i++) {
+         this.tentacles.get(i).moveToAngle(tentacleAngle, deltaTime, tentacleSpeed);
+      }
+
+      if (this.remoteHitCooldown > 0.0F) {
+         this.remoteHitCooldown -= deltaTime;
+      }
+
+      if (this.krakenState == KrakenState.CHARGING && this.remoteHitCooldown <= 0.0F
+            && GameScene.avatar != null
+            && CollisionDetector.containsPoint(GameScene.avatar.getCameraPos(), this.hitbox, this.position, this.navigator.getDirection().toAngles())) {
+         GameScene.avatar.takeDamage(30.0F, "You were killed by a kraken");
+         GameScene.avatar.applyImpulse(new Point(0.0F, 1.0F, 0.0F).scaled(75.0F));
+         this.remoteHitCooldown = 2.0F;
+      }
+   }
+
+   @Override
+   protected void applyNetHealth(float value) {
+      // The host flips the mission state on the first hit; mirror that here so
+      // both players see the same boss progression.
+      if (value < this.health) {
+         GameScene.onBossKilled();
+      }
+
+      this.health = value;
+   }
+
+   @Override
+   protected int currentNetStateOrdinal() {
+      return this.krakenState.ordinal();
+   }
+
+   @Override
+   protected void applyNetStateOrdinal(int ordinal) {
+      KrakenState[] states = KrakenState.values();
+      if (ordinal >= 0 && ordinal < states.length) {
+         this.krakenState = states[ordinal];
       }
    }
 
@@ -332,22 +432,25 @@ public final class Kraken extends Enemy {
          EnvironmentManager.addBloodParticles(new BloodParticles(result.getSource(), 7));
          this.wasHit = true;
          this.hitFlash = 1.0F;
-         this.health = this.health - damage.getAmount();
          result.accumulate(damage);
-         if (this.health <= 0.0F) {
-            this.health = 0.0F;
-            ArrayList<Segment> deathSegs = new ArrayList<>();
-            deathSegs.add(new Segment(this.position, this.position.plus(0.0F, 34.0F, 0.0F)));
-            this.die(deathSegs);
-            SoundManager.playSound(SoundManager.sfxKrakenDie, this.position, 0.7F, 1.0F);
-            GamePlayElmt gameElmt = Loading.worldManager.getGamePlayElmtAt(this.chunkX, this.chunkZ);
-            Inventory inventory = gameElmt.getInventory();
-            if (inventory != null && inventory.getStorageArray().get(0, 0).getItem() != null) {
-               inventory.getStorageArray().get(0, 0).getItem().setCount(inventory.getStorageArray().get(0, 0).getItem().getCount() - 1);
-               gameElmt.setInventory(inventory);
-            }
+         // Mirrored copies leave health alone: the host applies the hit.
+         if (!this.remoteControlled) {
+            this.health = this.health - damage.getAmount();
+            if (this.health <= 0.0F) {
+               this.health = 0.0F;
+               ArrayList<Segment> deathSegs = new ArrayList<>();
+               deathSegs.add(new Segment(this.position, this.position.plus(0.0F, 34.0F, 0.0F)));
+               this.die(deathSegs);
+               SoundManager.playSound(SoundManager.sfxKrakenDie, this.position, 0.7F, 1.0F);
+               GamePlayElmt gameElmt = Loading.worldManager.getGamePlayElmtAt(this.chunkX, this.chunkZ);
+               Inventory inventory = gameElmt.getInventory();
+               if (inventory != null && inventory.getStorageArray().get(0, 0).getItem() != null) {
+                  inventory.getStorageArray().get(0, 0).getItem().setCount(inventory.getStorageArray().get(0, 0).getItem().getCount() - 1);
+                  gameElmt.setInventory(inventory);
+               }
 
-            SoundManager.removeLoopingSource(this.soundSource);
+               SoundManager.removeLoopingSource(this.soundSource);
+            }
          }
       }
 

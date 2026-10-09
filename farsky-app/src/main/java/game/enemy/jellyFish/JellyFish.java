@@ -42,6 +42,8 @@ public final class JellyFish extends Enemy {
    private State state;
    private EnemyNavigator navigator;
    private boolean visible;
+   /** Client: local bite cadence while mirroring a host jellyfish that is attacking. */
+   private float remoteBiteCooldown = 0.0F;
 
    public JellyFish(Point spawnPos) {
       this.type = EnemyType.JELLYFISH;
@@ -62,13 +64,17 @@ public final class JellyFish extends Enemy {
          this.phase = (float)(this.phase - (Math.PI * 2));
       }
 
+      this.updateCombatFocus();
+      Point focus = this.getCombatFocus();
+      boolean focusInside = this.focusIsLocalAvatar() && GameScene.avatar.isInside();
+
       switch (this.state) {
          case IDLE:
             this.aggressive = false;
             this.navigator.navigate(deltaTime, 15.0F);
-            if (!GameScene.avatar.isInside()) {
+            if (!focusInside) {
                this.attackCooldown -= deltaTime;
-               if (this.attackCooldown <= 0.0F && GameScene.avatar.getCameraPos().distanceTo(this.position) < 150.0F) {
+               if (this.attackCooldown <= 0.0F && focus != null && focus.distanceTo(this.position) < 150.0F) {
                   this.attackCooldown = (float)Math.random() * 10.0F + 5.0F;
                   this.state = State.ATTACKING;
                }
@@ -85,11 +91,11 @@ public final class JellyFish extends Enemy {
                this.state = State.IDLE;
             }
 
-            if (GameScene.avatar.isInside()) {
+            if (focusInside) {
                this.state = State.IDLE;
             }
 
-            if (!this.navigator.trySetTarget(GameScene.avatar.getCameraPos()) || GameScene.avatar.getCameraPos().distanceTo(this.position) > 200.0F) {
+            if (focus == null || !this.navigator.trySetTarget(focus) || focus.distanceTo(this.position) > 200.0F) {
                this.state = State.IDLE;
             }
 		default:
@@ -100,6 +106,105 @@ public final class JellyFish extends Enemy {
       this.position = this.navigator.getPosition();
       this.hitbox = new AABB(this.position, 10.0F, 10.0F, 10.0F);
       this.visible = Frustum.isVisible(this.hitbox);
+   }
+
+   // ------------------------------------------------------------------
+   // Host-authoritative mirror (client side)
+   // ------------------------------------------------------------------
+
+   @Override
+   protected EnemyNavigator netNavigator() {
+      return this.navigator;
+   }
+
+   @Override
+   protected Point getPositionSnapshot() {
+      return this.position;
+   }
+
+   @Override
+   protected void remoteTransform(float deltaTime) {
+      this.phase += deltaTime * 3.0F;
+      if (this.phase >= Math.PI * 2) {
+         this.phase = (float)(this.phase - (Math.PI * 2));
+      }
+
+      Point target = this.netTargetPosition();
+      if (target == null) {
+         return;
+      }
+
+      float k = netLerpFactor(deltaTime);
+      boolean snap = this.netTakeSnap(this.position.distanceTo(target));
+      if (snap) {
+         this.position.set(target);
+      } else {
+         this.position.x += (target.x - this.position.x) * k;
+         this.position.y += (target.y - this.position.y) * k;
+         this.position.z += (target.z - this.position.z) * k;
+      }
+
+      this.navigator.setPosition(this.position);
+      Point dir = this.netDirectionToward(this.navigator.getDirection(), snap, k);
+      if (dir != null) {
+         this.navigator.setDirection(dir);
+      }
+
+      this.position = this.navigator.getPosition();
+      this.navigator.tickDying(deltaTime);
+      this.hitbox = new AABB(this.position, 10.0F, 10.0F, 10.0F);
+      this.visible = Frustum.isVisible(this.hitbox);
+   }
+
+   @Override
+   protected void remoteAfterTransform(float deltaTime) {
+      if (this.remoteBiteCooldown > 0.0F) {
+         this.remoteBiteCooldown -= deltaTime;
+      }
+
+      if (this.state != State.ATTACKING || this.remoteBiteCooldown > 0.0F
+            || GameScene.avatar == null || GameScene.avatar.isInside()) {
+         return;
+      }
+
+      if (CollisionDetector.containsPoint(GameScene.avatar.getCameraPos(), this.hitbox, new Point(0.0F, (float)Math.cos(this.phase) * 2.0F, 0.0F), new Point())) {
+         GameScene.avatar.takeDamage(8.0F, "You were killed by a jellyfish");
+         GameScene.avatar.applyImpulse(new Point(0.0F, 1.0F, 0.0F).scaled(75.0F));
+         this.remoteBiteCooldown = 2.0F;
+      }
+   }
+
+   @Override
+   protected float currentNetHealth() {
+      return this.currentHealth;
+   }
+
+   @Override
+   protected void applyNetHealth(float value) {
+      this.currentHealth = value;
+   }
+
+   @Override
+   protected int currentNetStateOrdinal() {
+      return this.state.ordinal();
+   }
+
+   @Override
+   protected void applyNetStateOrdinal(int ordinal) {
+      State[] states = State.values();
+      if (ordinal >= 0 && ordinal < states.length) {
+         this.state = states[ordinal];
+      }
+   }
+
+   @Override
+   protected boolean currentNetDying() {
+      return this.navigator.isDying();
+   }
+
+   @Override
+   protected void applyNetDying() {
+      this.navigator.startDying();
    }
 
    @Override
@@ -197,11 +302,16 @@ public final class JellyFish extends Enemy {
       if (hit) {
          EnvironmentManager.addBloodParticles(new BloodParticles(result.getSource(), 7, BloodParticles.BloodType.BLUE));
          result.accumulate(damage);
-         this.currentHealth = this.currentHealth - damage.getAmount();
-         if (this.currentHealth <= 0.0F) {
-            EnvironmentManager.addItemPickup(new ItemPickup(this.position, ItemType.JELLY));
-            this.currentHealth = 0.0F;
-            this.setTarget(null);
+         // Mirrored copies leave health alone: the host applies the hit.
+         if (!this.remoteControlled) {
+            this.currentHealth = this.currentHealth - damage.getAmount();
+            if (this.currentHealth <= 0.0F) {
+               EnvironmentManager.addItemPickup(new ItemPickup(this.position, ItemType.JELLY));
+               this.currentHealth = 0.0F;
+               // Matches the original: die() marks the corpse dead so further
+               // hits are ignored instead of dropping another jelly each time.
+               this.die(null);
+            }
          }
       }
 

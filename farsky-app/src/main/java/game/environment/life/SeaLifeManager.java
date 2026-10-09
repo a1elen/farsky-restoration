@@ -27,6 +27,11 @@ public final class SeaLifeManager {
    public SeaLifeManager() {
       this.spawnTimer = SPAWN_INTERVAL;
 
+      // The client receives its fish from the host instead of breeding them.
+      if (game.net.NetSession.isClient()) {
+         return;
+      }
+
       for (float x = -ChunkManager.viewDistance; x <= ChunkManager.viewDistance; x += 128.0F) {
          for (float z = -ChunkManager.viewDistance; z <= ChunkManager.viewDistance; z += 128.0F) {
             Point p = Camera.getPosition().plus(x, 0.0F, z);
@@ -42,116 +47,150 @@ public final class SeaLifeManager {
       }
 
       for (int i = 0; i < this.skatefishes.size(); i++) {
-         this.skatefishes.get(i).update(delta);
+         this.skatefishes.get(i).tick(delta);
       }
 
       for (int i = 0; i < this.tunas.size(); i++) {
-         this.tunas.get(i).update(delta);
+         this.tunas.get(i).tick(delta);
       }
 
       for (int i = 0; i < this.dolphins.size(); i++) {
-         this.dolphins.get(i).update(delta);
+         this.dolphins.get(i).tick(delta);
       }
 
       for (int i = 0; i < this.standardFishes.size(); i++) {
-         this.standardFishes.get(i).update(delta);
+         this.standardFishes.get(i).tick(delta);
       }
 
       for (int i = 0; i < this.whales.size(); i++) {
-         this.whales.get(i).update(delta);
+         this.whales.get(i).tick(delta);
       }
 
-      this.spawnTimer += delta;
-      if (this.spawnTimer >= SPAWN_INTERVAL) {
-         this.spawnTimer = this.spawnTimer - SPAWN_INTERVAL;
-
-         for (float angle = delta = (float)(Math.random() * Math.PI * 2.0); angle < (Math.PI * 2) + delta; angle = (float)(angle + (Math.PI / 16))) {
-            Point spawnPoint = Camera.getPosition().plus(new Point(Math.cos(angle) * ChunkManager.viewDistance, 0.0, Math.sin(angle) * ChunkManager.viewDistance));
-            this.spawnFishAt(spawnPoint.toCoord());
-         }
-
-         if (stage == 0 && Math.random() < 0.08F) {
-            float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
-            Coord spawnDir = new Coord(Math.sin(Math.toRadians(Camera.getYaw() + yawOffset)), Math.cos(Math.toRadians(Camera.getYaw() + yawOffset)));
-
-            for (int i = 0; i < 5; i++) {
-               Point p = Camera.getPosition()
-                     .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
-               p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
-               this.skatefishes.add(new Skatefish(p, spawnDir));
-            }
-         }
-
-         if (stage == 0 && Math.random() < 0.05F || stage == 1 && Math.random() < 0.03F) {
-            float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
-            Coord spawnDir = new Coord(Math.sin(Math.toRadians(Camera.getYaw() + yawOffset)), Math.cos(Math.toRadians(Camera.getYaw() + yawOffset)));
-
-            for (int i = 0; i < 15; i++) {
-               Point p = Camera.getPosition()
-                     .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
-               p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
-               this.tunas.add(new Tuna(p, spawnDir));
-            }
-         }
-
-         if (stage == 0 && Math.random() < 0.006F) {
-            float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
-            Coord spawnDir = new Coord(Math.sin(Math.toRadians(Camera.getYaw() + yawOffset)), Math.cos(Math.toRadians(Camera.getYaw() + yawOffset)));
-
-            for (int i = 0; i < 15; i++) {
-               Point p = Camera.getPosition()
-                     .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
-               p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
-               this.dolphins.add(new Dolphin(p, spawnDir));
-            }
-         }
-
-         if (stage == 0 && Math.random() < 0.01F) {
-            float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
-            Coord spawnDir = new Coord(Math.sin(Math.toRadians(Camera.getYaw() + yawOffset)), Math.cos(Math.toRadians(Camera.getYaw() + yawOffset)));
-
-            for (int i = 0; i <= 0; i++) {
-               Point p = Camera.getPosition()
-                     .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
-               p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
-               this.whales.add(new Whale(p, spawnDir));
-            }
-         }
+      if (!game.net.NetSession.isClient()) {
+         this.spawnPeriodic(delta, stage);
       }
 
-      for (int i = this.skatefishes.size() - 1; i >= 0; i--) {
-         if (this.skatefishes.get(i).shouldRemove()) {
-            this.skatefishes.remove(i);
-         }
-      }
+      this.cleanup(this.skatefishes);
+      this.cleanup(this.tunas);
+      this.cleanup(this.dolphins);
+      this.cleanup(this.standardFishes);
+      this.cleanup(this.whales);
 
-      for (int i = this.tunas.size() - 1; i >= 0; i--) {
-         if (this.tunas.get(i).shouldRemove()) {
-            this.tunas.remove(i);
-         }
-      }
-
-      for (int i = this.dolphins.size() - 1; i >= 0; i--) {
-         if (this.dolphins.get(i).shouldRemove()) {
-            this.dolphins.remove(i);
-         }
-      }
-
-      for (int i = this.standardFishes.size() - 1; i >= 0; i--) {
-         if (this.standardFishes.get(i).shouldRemove()) {
-            this.standardFishes.remove(i);
-         }
-      }
-
-      for (int i = this.whales.size() - 1; i >= 0; i--) {
-         if (this.whales.get(i).shouldRemove()) {
-            this.whales.remove(i);
-         }
+      if (!game.net.NetSession.isClient()) {
+         this.assignNetIds();
       }
 
       for (int i = this.spawnedChunks.size() - 1; i >= 0; i--) {
          if (this.spawnedChunks.get(i).distanceTo(Camera.getPosition().toCoord()) > ChunkManager.viewDistance * 1.2F) {
             this.spawnedChunks.remove(i);
+         }
+      }
+   }
+
+   /** Host: everything that breeds new fish - never run on a mirroring client. */
+   private void spawnPeriodic(float delta, int stage) {
+      this.spawnTimer += delta;
+      if (this.spawnTimer < SPAWN_INTERVAL) {
+         return;
+      }
+
+      this.spawnTimer = this.spawnTimer - SPAWN_INTERVAL;
+      this.spawnAround(Camera.getPosition(), Camera.getYaw(), stage);
+
+      // The joined player gets a population around them too, so the client is
+      // never left swimming through an empty sea when the host is far away.
+      game.net.RemotePlayer peer = game.net.NetSession.getRemotePlayer();
+      if (peer != null && peer.getRenderPos().distanceTo(Camera.getPosition()) > ChunkManager.viewDistance) {
+         int peerStage = Loading.worldManager == null
+               ? 0 : Loading.worldManager.getStageAt(peer.getRenderPos().x, peer.getRenderPos().z);
+         this.spawnAround(peer.getRenderPos(), peer.getRenderYaw(), peerStage);
+      }
+   }
+
+   /** Host: one spawn pass around an anchor (the camera, or the joined player). */
+   private void spawnAround(Point anchor, float yaw, int stage) {
+      float startAngle = (float)(Math.random() * Math.PI * 2.0);
+      for (float angle = startAngle; angle < startAngle + Math.PI * 2.0; angle = (float)(angle + (Math.PI / 16))) {
+         Point spawnPoint = anchor.plus(new Point(Math.cos(angle) * ChunkManager.viewDistance, 0.0, Math.sin(angle) * ChunkManager.viewDistance));
+         this.spawnFishAt(spawnPoint.toCoord());
+      }
+
+      if (stage == 0 && Math.random() < 0.08F) {
+         float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
+         Coord spawnDir = new Coord(Math.sin(Math.toRadians(yaw + yawOffset)), Math.cos(Math.toRadians(yaw + yawOffset)));
+
+         for (int i = 0; i < 5; i++) {
+            Point p = anchor
+                  .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
+            p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
+            this.skatefishes.add(new Skatefish(p, spawnDir));
+         }
+      }
+
+      if (stage == 0 && Math.random() < 0.05F || stage == 1 && Math.random() < 0.03F) {
+         float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
+         Coord spawnDir = new Coord(Math.sin(Math.toRadians(yaw + yawOffset)), Math.cos(Math.toRadians(yaw + yawOffset)));
+
+         for (int i = 0; i < 15; i++) {
+            Point p = anchor
+                  .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
+            p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
+            this.tunas.add(new Tuna(p, spawnDir));
+         }
+      }
+
+      if (stage == 0 && Math.random() < 0.006F) {
+         float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
+         Coord spawnDir = new Coord(Math.sin(Math.toRadians(yaw + yawOffset)), Math.cos(Math.toRadians(yaw + yawOffset)));
+
+         for (int i = 0; i < 15; i++) {
+            Point p = anchor
+                  .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
+            p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
+            this.dolphins.add(new Dolphin(p, spawnDir));
+         }
+      }
+
+      if (stage == 0 && Math.random() < 0.01F) {
+         float yawOffset = ((float)Math.random() - 0.5F) * 90.0F;
+         Coord spawnDir = new Coord(Math.sin(Math.toRadians(yaw + yawOffset)), Math.cos(Math.toRadians(yaw + yawOffset)));
+
+         for (int i = 0; i <= 0; i++) {
+            Point p = anchor
+                  .plus(new Point(-spawnDir.x * (ChunkManager.viewDistance + Math.random() * 210.0), 0.0, -spawnDir.y * (ChunkManager.viewDistance + Math.random() * 210.0)));
+            p.y = ChunkManager.getHeight(p.x, p.z) + 250.0F;
+            this.whales.add(new Whale(p, spawnDir));
+         }
+      }
+   }
+
+   /** Host: drops fish that swam out of range or died, and tells the client. */
+   private void cleanup(ArrayList<Fish> list) {
+      for (int i = list.size() - 1; i >= 0; i--) {
+         Fish fish = list.get(i);
+         if (fish.shouldRemove()) {
+            if (fish.getNetId() >= 0) {
+               game.net.NetSession.sendFishDespawn(fish.getNetId());
+            }
+
+            list.remove(i);
+         }
+      }
+   }
+
+   /** Host: gives every freshly spawned fish a stable id before it is broadcast. */
+   private void assignNetIds() {
+      this.assignNetIds(this.skatefishes);
+      this.assignNetIds(this.tunas);
+      this.assignNetIds(this.dolphins);
+      this.assignNetIds(this.standardFishes);
+      this.assignNetIds(this.whales);
+   }
+
+   private void assignNetIds(ArrayList<Fish> list) {
+      for (int i = 0; i < list.size(); i++) {
+         if (list.get(i).getNetId() < 0) {
+            list.get(i).setNetId(game.net.NetSession.nextFishId());
          }
       }
    }
@@ -208,6 +247,158 @@ public final class SeaLifeManager {
       GL11.glEnable(GL11.GL_CULL_FACE);
       Shaders.setUniform("invertAlphaLight", false);
       GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+   }
+
+   /** Fish classes packed into MSG_FISH_SYNC. */
+   public static final int KIND_STANDARD = 0;
+   public static final int KIND_ABYSSAL = 1;
+   public static final int KIND_SKATEFISH = 2;
+   public static final int KIND_TUNA = 3;
+   public static final int KIND_DOLPHIN = 4;
+   public static final int KIND_WHALE = 5;
+
+   /** Host: which packed kind a fish belongs to. */
+   public static int kindOf(Fish fish) {
+      if (fish instanceof Skatefish) {
+         return KIND_SKATEFISH;
+      }
+
+      if (fish instanceof Tuna) {
+         return KIND_TUNA;
+      }
+
+      if (fish instanceof Dolphin) {
+         return KIND_DOLPHIN;
+      }
+
+      if (fish instanceof Whale) {
+         return KIND_WHALE;
+      }
+
+      if (fish instanceof AbyssalFish) {
+         return KIND_ABYSSAL;
+      }
+
+      return KIND_STANDARD;
+   }
+
+   /** Client: builds a fish from a host sample; it never runs schooling AI. */
+   public final Fish spawnRemote(int id, int kind, FishType type, Point pos, float rotX, float rotY) {
+      Fish fish;
+      Coord flatDir = new Coord(1.0F, 0.0F);
+
+      switch (kind) {
+         case KIND_SKATEFISH:
+            fish = new Skatefish(pos, flatDir);
+            break;
+         case KIND_TUNA:
+            fish = new Tuna(pos, flatDir);
+            break;
+         case KIND_DOLPHIN:
+            fish = new Dolphin(pos, flatDir);
+            break;
+         case KIND_WHALE:
+            fish = new Whale(pos, flatDir);
+            break;
+         case KIND_ABYSSAL:
+            fish = new AbyssalFish(pos, type);
+            break;
+         default:
+            fish = new StandardFish(pos, type);
+            break;
+      }
+
+      fish.setNetId(id);
+      fish.beginRemoteControl();
+      fish.applyNetState(pos.x, pos.y, pos.z, rotX, rotY);
+      this.listOf(fish).add(fish);
+      return fish;
+   }
+
+   /** The fish carrying this host id, or null when it is not in the world. */
+   public final Fish getByNetId(int id) {
+      Fish fish = findIn(this.skatefishes, id);
+      if (fish == null) {
+         fish = findIn(this.tunas, id);
+      }
+
+      if (fish == null) {
+         fish = findIn(this.dolphins, id);
+      }
+
+      if (fish == null) {
+         fish = findIn(this.whales, id);
+      }
+
+      if (fish == null) {
+         fish = findIn(this.standardFishes, id);
+      }
+
+      return fish;
+   }
+
+   /** Client: drops a fish the host removed (by explicit despawn message). */
+   public final void removeRemote(int id) {
+      removeById(this.skatefishes, id);
+      removeById(this.tunas, id);
+      removeById(this.dolphins, id);
+      removeById(this.whales, id);
+      removeById(this.standardFishes, id);
+   }
+
+   /** Fills {@code out} with every live fish, for the host's state broadcast. */
+   public final void collectAll(ArrayList<Fish> out) {
+      out.addAll(this.skatefishes);
+      out.addAll(this.tunas);
+      out.addAll(this.dolphins);
+      out.addAll(this.whales);
+      out.addAll(this.standardFishes);
+   }
+
+   private ArrayList<Fish> listOf(Fish fish) {
+      if (fish instanceof Skatefish) {
+         return this.skatefishes;
+      }
+
+      if (fish instanceof Tuna) {
+         return this.tunas;
+      }
+
+      if (fish instanceof Dolphin) {
+         return this.dolphins;
+      }
+
+      if (fish instanceof Whale) {
+         return this.whales;
+      }
+
+      return this.standardFishes;
+   }
+
+   private static Fish findIn(ArrayList<Fish> list, int id) {
+      if (id < 0) {
+         return null;
+      }
+
+      for (int i = 0; i < list.size(); i++) {
+         if (list.get(i).getNetId() == id) {
+            return list.get(i);
+         }
+      }
+
+      return null;
+   }
+
+   private static void removeById(ArrayList<Fish> list, int id) {
+      if (id < 0) {
+         return;
+      }
+
+      for (int i = list.size() - 1; i >= 0; i--) {
+         if (list.get(i).getNetId() == id) {
+            list.remove(i);
+         }
+      }
    }
 
    private void spawnFishAt(Coord coord) {
@@ -297,23 +488,23 @@ public final class SeaLifeManager {
       Damage totalDamage = new Damage();
 
       for (int i = this.skatefishes.size() - 1; i >= 0; i--) {
-         totalDamage.accumulate(this.skatefishes.get(i).checkHit(segments, weaponDamage));
+         totalDamage.accumulate(this.hitAndReport(this.skatefishes.get(i), segments, weaponDamage));
       }
 
       for (int i = this.tunas.size() - 1; i >= 0; i--) {
-         totalDamage.accumulate(this.tunas.get(i).checkHit(segments, weaponDamage));
+         totalDamage.accumulate(this.hitAndReport(this.tunas.get(i), segments, weaponDamage));
       }
 
       for (int i = this.dolphins.size() - 1; i >= 0; i--) {
-         totalDamage.accumulate(this.dolphins.get(i).checkHit(segments, weaponDamage));
+         totalDamage.accumulate(this.hitAndReport(this.dolphins.get(i), segments, weaponDamage));
       }
 
       for (int i = this.whales.size() - 1; i >= 0; i--) {
-         totalDamage.accumulate(this.whales.get(i).checkHit(segments, weaponDamage));
+         totalDamage.accumulate(this.hitAndReport(this.whales.get(i), segments, weaponDamage));
       }
 
       for (int i = this.standardFishes.size() - 1; i >= 0; i--) {
-         totalDamage.accumulate(this.standardFishes.get(i).checkHit(segments, weaponDamage));
+         totalDamage.accumulate(this.hitAndReport(this.standardFishes.get(i), segments, weaponDamage));
       }
 
       if (totalDamage.getAmount() > 0.0F) {
@@ -339,6 +530,16 @@ public final class SeaLifeManager {
       }
 
       return totalDamage;
+   }
+
+   /** Runs a hit and, on a mirrored fish, tells the host to apply it for real. */
+   private Damage hitAndReport(Fish fish, ArrayList<Segment> segments, Damage weaponDamage) {
+      Damage result = fish.checkHit(segments, weaponDamage);
+      if (fish.isRemoteControlled() && result.getAmount() > 0.0F) {
+         game.net.NetSession.sendFishHit(fish.getNetId(), weaponDamage.getAmount());
+      }
+
+      return result;
    }
 
    public final State resolveCollision(State position, State velocity) {

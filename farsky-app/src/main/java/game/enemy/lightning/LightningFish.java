@@ -43,6 +43,10 @@ public abstract class LightningFish extends Enemy {
    private float nightAggroRange = 300.0F;
    protected float speedMult = 1.0F;
    protected float attackDamage = 10.0F;
+   /** Client: previous mirrored state, used to fire one-shot discharge effects. */
+   private int remoteVisualState = -1;
+   private float remoteFlashTimer = 0.0F;
+   private boolean remoteWasInShockRange = false;
 
    public LightningFish(Point position, float bodySize) {
       this.state = State.IDLE;
@@ -66,13 +70,17 @@ public abstract class LightningFish extends Enemy {
          this.hitFlash = 0.0F;
       }
 
+      this.updateCombatFocus();
+      Point focus = this.getCombatFocus();
+      boolean focusInside = this.focusIsLocalAvatar() && GameScene.avatar.isInside();
+
       switch (this.state) {
          case IDLE:
-            if (GameScene.avatar != null && GameScene.avatar.getCameraPos().distanceTo(this.position) < this.aggroRange) {
+            if (focus != null && focus.distanceTo(this.position) < this.aggroRange) {
                this.aggressive = true;
             }
 
-            if (GameScene.avatar != null && GameTime.isNight() && GameScene.avatar.getCameraPos().distanceTo(this.position) < this.nightAggroRange) {
+            if (focus != null && GameTime.isNight() && focus.distanceTo(this.position) < this.nightAggroRange) {
                this.aggressive = true;
             }
 
@@ -87,13 +95,13 @@ public abstract class LightningFish extends Enemy {
                SoundManager.setLoopingSourcePitch(this.soundSource, 1.0F);
             }
 
-            if (GameScene.avatar.isInside()) {
+            if (focusInside) {
                this.stateCooldown = 5.0F;
             }
 
             if (this.aggressive || this.isTargeted) {
                this.stateCooldown -= deltaTime;
-               if (this.stateCooldown <= 0.0F && !GameScene.avatar.isInside()) {
+               if (this.stateCooldown <= 0.0F && !focusInside) {
                   this.state = State.SHOCKING;
                   this.stateCooldown = 3.0F;
                   this.attackInterrupted = false;
@@ -114,7 +122,7 @@ public abstract class LightningFish extends Enemy {
             break;
          case SHOCKING:
             this.aggressive = true;
-            if (GameScene.avatar.isInside() || !this.navigator.trySetTarget(GameScene.avatar.getCameraPos()) || this.attackInterrupted) {
+            if (focusInside || focus == null || !this.navigator.trySetTarget(focus) || this.attackInterrupted) {
                this.state = State.IDLE;
                this.attackInterrupted = false;
                this.stateCooldown = 4.0F + (float)Math.random() * 7.0F;
@@ -133,7 +141,7 @@ public abstract class LightningFish extends Enemy {
             }
 
             this.stateCooldown -= deltaTime;
-            if (this.stateCooldown <= 0.0F || GameScene.avatar.getCameraPos().distanceTo(this.position) < this.dischargeRadius * 0.8F) {
+            if (this.stateCooldown <= 0.0F || (focus != null && focus.distanceTo(this.position) < this.dischargeRadius * 0.8F)) {
                this.state = State.DISCHARGING;
                this.stateCooldown = 4.0F + (float)Math.random() * 7.0F;
             }
@@ -170,7 +178,9 @@ public abstract class LightningFish extends Enemy {
       if (this.navigator.isDyingComplete()) {
          this.health = 0.0F;
          this.onDeath();
-         this.setTarget(null);
+         // die(null) marks the corpse dead (deathTimer 2.5 s) so this block
+         // runs exactly once; without it the body would drop loot every frame.
+         this.die(null);
          this.onRemove();
       }
 
@@ -178,6 +188,112 @@ public abstract class LightningFish extends Enemy {
       if (!this.dead) {
          SoundManager.setLoopingSourcePosition(this.soundSource, this.position);
       }
+   }
+
+   // ------------------------------------------------------------------
+   // Host-authoritative mirror (client side)
+   // ------------------------------------------------------------------
+
+   @Override
+   protected EnemyNavigator netNavigator() {
+      return this.navigator;
+   }
+
+   @Override
+   protected void remoteTransform(float deltaTime) {
+      Point target = this.netTargetPosition();
+      if (target == null) {
+         return;
+      }
+
+      float k = netLerpFactor(deltaTime);
+      boolean snap = this.netTakeSnap(this.position.distanceTo(target));
+      if (snap) {
+         this.position.set(target);
+      } else {
+         this.position.x += (target.x - this.position.x) * k;
+         this.position.y += (target.y - this.position.y) * k;
+         this.position.z += (target.z - this.position.z) * k;
+      }
+
+      this.navigator.setPosition(this.position);
+      Point dir = this.netDirectionToward(this.navigator.getDirection(), snap, k);
+      if (dir != null) {
+         this.navigator.setDirection(dir);
+      }
+
+      this.position = this.navigator.getPosition();
+      this.navigator.tickDying(deltaTime);
+      if (!this.dead) {
+         SoundManager.setLoopingSourcePosition(this.soundSource, this.position);
+      }
+   }
+
+   @Override
+   protected void remoteAfterTransform(float deltaTime) {
+      int ord = this.state == null ? State.IDLE.ordinal() : this.state.ordinal();
+      // The host only holds DISCHARGING for a single tick, so the discharge is
+      // reconstructed from what we can observe: SHOCKING while in bite range,
+      // followed by the return to idle.
+      boolean inShockRange = this.state == State.SHOCKING
+            && GameScene.avatar != null
+            && GameScene.avatar.getCameraPos().distanceTo(this.position) < this.dischargeRadius * 0.8F;
+      if (this.state == State.SHOCKING && !inShockRange) {
+         this.remoteFlashTimer += deltaTime;
+         if (this.remoteFlashTimer >= 0.15F) {
+            this.remoteFlashTimer -= 0.15F;
+            this.lightningFlashes.add(new LightningFlash(this.position, 40.0F));
+         }
+      }
+
+      boolean justDischarged = this.remoteWasInShockRange && this.state != State.SHOCKING;
+      this.remoteWasInShockRange = inShockRange;
+      if (justDischarged) {
+         for (int i = 0; i < (int)this.dischargeRadius; i++) {
+            this.lightningFlashes.add(new LightningFlash(this.position.plus(new Point(
+                  this.dischargeRadius * (Math.random() - 0.5F),
+                  this.dischargeRadius * (Math.random() - 0.5F),
+                  this.dischargeRadius * (Math.random() - 0.5F))), 40.0F));
+         }
+
+         SoundManager.playSound(SoundManager.sfxLightning, this.position, 1.5F + ((float)Math.random() - 0.5F) * 0.2F);
+         if (GameScene.avatar != null && !GameScene.avatar.isInside()) {
+            GameScene.avatar.takeDamage(this.attackDamage, "You were killed by " + this.type.getName());
+            GameScene.avatar.applyImpulse(new Point(0.0F, 1.0F, 0.0F).scaled(75.0F));
+         }
+      }
+
+      this.remoteVisualState = ord;
+
+      for (int i = this.lightningFlashes.size() - 1; i >= 0; i--) {
+         this.lightningFlashes.get(i).tick(deltaTime);
+         if (this.lightningFlashes.get(i).isDone()) {
+            this.lightningFlashes.remove(i);
+         }
+      }
+   }
+
+   @Override
+   protected int currentNetStateOrdinal() {
+      return this.state.ordinal();
+   }
+
+   @Override
+   protected void applyNetStateOrdinal(int ordinal) {
+      State[] states = State.values();
+      if (ordinal >= 0 && ordinal < states.length) {
+         this.state = states[ordinal];
+      }
+   }
+
+   @Override
+   protected boolean currentNetDying() {
+      return this.navigator.isDying();
+   }
+
+   @Override
+   protected void applyNetDying() {
+      this.navigator.startDying();
    }
 
    @Override
@@ -201,10 +317,13 @@ public abstract class LightningFish extends Enemy {
          this.aggressive = true;
          this.attackInterrupted = true;
          this.hitFlash = 1.0F;
-         this.health = this.health - damage.getAmount();
          result.accumulate(damage);
-         if (this.health <= 0.0F) {
-            this.navigator.startDying();
+         // Mirrored copies leave health alone: the host applies the hit.
+         if (!this.remoteControlled) {
+            this.health = this.health - damage.getAmount();
+            if (this.health <= 0.0F) {
+               this.navigator.startDying();
+            }
          }
       }
 

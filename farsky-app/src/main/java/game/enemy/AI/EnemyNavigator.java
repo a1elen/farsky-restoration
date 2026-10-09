@@ -183,6 +183,16 @@ public final class EnemyNavigator {
       return this.isDying;
    }
 
+   /**
+    * Runs the death animation forward on a peer that mirrors this creature
+    * instead of calling {@link #navigate(float, float)}.
+    */
+   public final void tickDying(float deltaTime) {
+      if (this.isDying && this.dyingProgress > -1.0F) {
+         this.dyingProgress -= deltaTime;
+      }
+   }
+
    public final void setPosition(Point pos) {
       this.position = pos.copy();
    }

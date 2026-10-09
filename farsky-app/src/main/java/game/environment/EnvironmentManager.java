@@ -135,6 +135,11 @@ public final class EnvironmentManager {
       return seaLifeManager.resolveCollision(position, velocity);
    }
 
+   /** The fish population, shared with the network layer for creature sync. */
+   public static game.environment.life.SeaLifeManager getSeaLifeManager() {
+      return seaLifeManager;
+   }
+
    public static void renderOpaque() {
       GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
 

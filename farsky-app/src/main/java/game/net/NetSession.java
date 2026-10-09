@@ -59,7 +59,7 @@ public final class NetSession {
    public enum Status { OFFLINE, LISTENING, CONNECTING, CONNECTED, ERROR }
 
    public static final int DEFAULT_PORT = 45678;
-   private static final int PROTOCOL_VERSION = 6;
+   private static final int PROTOCOL_VERSION = 7;
    private static final byte MSG_HELLO = 1;
    private static final byte MSG_WELCOME = 2;
    private static final byte MSG_POS = 3;
@@ -91,6 +91,18 @@ public final class NetSession {
 
    /** Host -> client: authoritative clock + light level (day/night sync). */
    private static final byte MSG_TIME = 28;
+   /** Host -> client: batched creature states; unknown ids create the creature. */
+   private static final byte MSG_ENEMY_SYNC = 29;
+   /** Host -> client: the creature with this id left the world. */
+   private static final byte MSG_ENEMY_DESPAWN = 30;
+   /** Client -> host: damage the client just applied to a mirrored creature. */
+   private static final byte MSG_ENEMY_HIT = 31;
+   /** Host -> client: batched fish states; unknown ids create the fish. */
+   private static final byte MSG_FISH_SYNC = 32;
+   /** Host -> client: the fish with this id left the world. */
+   private static final byte MSG_FISH_DESPAWN = 33;
+   /** Client -> host: damage the client just applied to a mirrored fish. */
+   private static final byte MSG_FISH_HIT = 34;
    // Kinds carried by MSG_OBJ_SPAWN (placed outside objects).
    public static final int OBJ_EXTRACTOR = 0;
    public static final int OBJ_EXTRACTOR_OVERPOWERED = 1;
@@ -100,6 +112,12 @@ public final class NetSession {
    private static final float SEND_INTERVAL = 0.05F;
    private static final float WATER_SEND_INTERVAL = 2.0F;
    private static final float DROID_SEND_INTERVAL = 0.2F;
+   private static final float CREATURE_SEND_INTERVAL = 0.1F;
+   /** Creatures packed into a single MSG_ENEMY_SYNC frame. */
+   private static final int CREATURE_BATCH = 128;
+   private static final float FISH_SEND_INTERVAL = 0.34F;
+   /** Fish packed into a single MSG_FISH_SYNC frame. */
+   private static final int FISH_BATCH = 160;
    private static final float PLAYER_STATE_INTERVAL = 2.5F;
    private static final int CONNECT_TIMEOUT_MS = 5000;
 
@@ -183,9 +201,20 @@ public final class NetSession {
    // Peer state mirrored from MSG_POS (money, driven submarine).
    private static int remoteMoney = 0;
    private static int remoteSubIdx = -1;
-   // Periodic host snapshots: water levels, droid positions.
+   // Periodic host snapshots: water levels, droid positions, creatures.
    private static float waterTimer = 0.0F;
    private static float droidTimer = 0.0F;
+   private static float creatureTimer = 0.0F;
+   /** Host: creature ids the client already mirrors; used to detect removals. */
+   private static final java.util.HashSet<Integer> knownEnemies = new java.util.HashSet<Integer>();
+   private static float fishTimer = 0.0F;
+   private static int nextFishId = 1;
+   /** Host: fish ids the client already mirrors; used to detect removals. */
+   private static final java.util.HashSet<Integer> knownFish = new java.util.HashSet<Integer>();
+   private static final java.util.ArrayList<game.environment.life.Fish> fishSyncScratch =
+         new java.util.ArrayList<game.environment.life.Fish>();
+   private static final java.util.ArrayList<game.environment.life.Fish> fishEligible =
+         new java.util.ArrayList<game.environment.life.Fish>();
 
    static {
       String addr = System.getProperty("farsky.join");
@@ -216,9 +245,18 @@ public final class NetSession {
    }
 
    /**
-    * True while this side mirrors the host's world (client role, linked and in
-    * game): local AI simulation is skipped so host snapshots stay authoritative.
+    * Host: position of the joined player as a chase target, or null when no
+    * one is connected. Lets the host's creatures hunt both players instead of
+    * only the host's own avatar.
     */
+   public static Point getRemoteAggroPos() {
+      if (role != Role.HOST || status != Status.CONNECTED || remote == null) {
+         return null;
+      }
+
+      return remote.getRenderPos();
+   }
+
    /** True while this instance joins someone else's session as the client. */
    public static boolean isClient() {
       return role == Role.CLIENT;
@@ -373,6 +411,18 @@ public final class NetSession {
                droidTimer = 0.0F;
                sendDroidSnapshots();
             }
+
+            creatureTimer += delta;
+            if (creatureTimer >= CREATURE_SEND_INTERVAL) {
+               creatureTimer = 0.0F;
+               sendCreatureStates();
+            }
+
+            fishTimer += delta;
+            if (fishTimer >= FISH_SEND_INTERVAL) {
+               fishTimer = 0.0F;
+               sendFishStates();
+            }
          }
       }
 
@@ -404,6 +454,7 @@ public final class NetSession {
       if (remote != null) {
          remote.update(delta);
       }
+
    }
 
    /** Renders the remote player; call from the world render pass with the enemy shader bound. */
@@ -520,6 +571,10 @@ public final class NetSession {
       droidSyncBytes = null;
       waterTimer = 0.0F;
       droidTimer = 0.0F;
+      creatureTimer = 0.0F;
+      knownEnemies.clear();
+      fishTimer = 0.0F;
+      knownFish.clear();
       clientAlive = true;
       handshakeDone = false;
       pendingPlayerState = null;
@@ -715,6 +770,26 @@ public final class NetSession {
 
                break;
             }
+            case MSG_ENEMY_HIT: {
+               // Applied straight away (not through applyWorldMessage) so the
+               // resulting loot drop is still broadcast to the client.
+               if (role == Role.HOST) {
+                  int enemyId = d.readUnsignedShort();
+                  float amount = d.readFloat();
+                  applyRemoteEnemyHit(enemyId, amount);
+               }
+
+               break;
+            }
+            case MSG_FISH_HIT: {
+               if (role == Role.HOST) {
+                  int fishId = d.readUnsignedShort();
+                  float amount = d.readFloat();
+                  applyRemoteFishHit(fishId, amount);
+               }
+
+               break;
+            }
             case MSG_POS: {
                float x = d.readFloat();
                float y = d.readFloat();
@@ -779,6 +854,10 @@ public final class NetSession {
             case MSG_POT_STATE:
              case MSG_SUB_PIECE:
             case MSG_WATER:
+            case MSG_ENEMY_SYNC:
+            case MSG_ENEMY_DESPAWN:
+            case MSG_FISH_SYNC:
+            case MSG_FISH_DESPAWN:
                if (isGameplayState()) {
                   applyWorldMessage(frame);
                } else {
@@ -1836,6 +1915,323 @@ public final class NetSession {
          queueRaw(bos.toByteArray());
       }
    }
+
+   /** Host: broadcasts every creature's authoritative state, 10 times per second. */
+   private static void sendCreatureStates() {
+      if (GameScene.enemyManager == null) {
+         return;
+      }
+
+      java.util.ArrayList<game.enemy.Enemy> list = GameScene.enemyManager.getEnemies();
+      java.util.HashSet<Integer> present = new java.util.HashSet<Integer>();
+
+      for (int i = 0; i < list.size(); i++) {
+         if (list.get(i).getNetId() >= 0) {
+            present.add(list.get(i).getNetId());
+         }
+      }
+
+      // Anything we announced that is gone now has to be dropped on the client.
+      java.util.Iterator<Integer> knownIt = knownEnemies.iterator();
+      while (knownIt.hasNext()) {
+         int id = knownIt.next();
+         if (!present.contains(id)) {
+            knownIt.remove();
+            sendEnemyDespawn(id);
+         }
+      }
+
+      for (int start = 0; start < list.size(); start += CREATURE_BATCH) {
+         int end = Math.min(list.size(), start + CREATURE_BATCH);
+         int count = 0;
+
+         for (int i = start; i < end; i++) {
+            if (list.get(i).getNetId() >= 0) {
+               count++;
+            }
+         }
+
+         if (count == 0) {
+            continue;
+         }
+
+         ByteArrayOutputStream bos = new ByteArrayOutputStream(3 + count * 34);
+         DataOutputStream d = new DataOutputStream(bos);
+
+         try {
+            d.writeByte(MSG_ENEMY_SYNC);
+            d.writeShort(count);
+
+            for (int i = start; i < end; i++) {
+               game.enemy.Enemy enemy = list.get(i);
+               if (enemy.getNetId() < 0) {
+                  continue;
+               }
+
+               writeCreature(d, enemy);
+               knownEnemies.add(enemy.getNetId());
+            }
+         } catch (IOException e) {
+            return;
+         }
+
+         queueRaw(bos.toByteArray());
+      }
+   }
+
+   /** One creature entry of MSG_ENEMY_SYNC: id, type, transform, health, animation. */
+   private static void writeCreature(DataOutputStream d, game.enemy.Enemy enemy) throws IOException {
+      Point p = enemy.getPosition();
+      if (p == null) {
+         p = new Point();
+      }
+
+      Point dir = enemy.getNetFacingForSync();
+      float dx = dir.x;
+      float dy = dir.y;
+      float dz = dir.z;
+      if (dx * dx + dy * dy + dz * dz < 1.0E-4F) {
+         dx = 0.0F;
+         dy = 0.0F;
+         dz = 1.0F;
+      }
+
+      int flags = enemy.getNetStateForSync() & 7;
+      if (enemy.isNetDying()) {
+         flags |= 8;
+      }
+
+      if (enemy.isNetDead()) {
+         flags |= 16;
+      }
+
+      d.writeShort(enemy.getNetId());
+      d.writeByte(enemy.getType().ordinal());
+      d.writeFloat(p.x);
+      d.writeFloat(p.y);
+      d.writeFloat(p.z);
+      d.writeFloat(dx);
+      d.writeFloat(dy);
+      d.writeFloat(dz);
+      d.writeFloat(enemy.getNetHealthForSync());
+      d.writeByte(flags);
+      d.writeByte(toByte(enemy.getNetMouthForSync()));
+      d.writeByte(toByte(enemy.getNetHitFlashForSync()));
+   }
+
+   private static int toByte(float unit) {
+      int value = (int)(unit * 255.0F);
+      if (value < 0) {
+         return 0;
+      }
+
+      return value > 255 ? 255 : value;
+   }
+
+   /** Host: tells the client that a creature was removed from the world. */
+   public static void sendEnemyDespawn(int id) {
+      if (id < 0 || role != Role.HOST || status != Status.CONNECTED || applyingRemote) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(3);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_ENEMY_DESPAWN);
+         d.writeShort(id);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Client: reports damage it applied to a mirrored creature so the host can resolve it. */
+   public static void sendEnemyHit(int id, float amount) {
+      if (id < 0 || amount <= 0.0F || role != Role.CLIENT || status != Status.CONNECTED || applyingRemote) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(7);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_ENEMY_HIT);
+         d.writeShort(id);
+         d.writeFloat(amount);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Host: applies a hit the client reported against one of our creatures. */
+   private static void applyRemoteEnemyHit(int id, float amount) {
+      if (GameScene.enemyManager == null || amount <= 0.0F) {
+         return;
+      }
+
+      game.enemy.Enemy enemy = GameScene.enemyManager.getByNetId(id);
+      if (enemy != null && !enemy.isRemoteControlled()) {
+         enemy.applyRemoteDamage(amount);
+      }
+   }
+
+   /** Host: allocates the next stable fish id for a freshly spawned fish. */
+   public static int nextFishId() {
+      return nextFishId++;
+   }
+
+   /** Distance from a point to whichever player (local or peer) is closer. */
+   private static float distanceToNearestAnchor(Point point) {
+      if (point == null) {
+         return 0.0F;
+      }
+
+      float distance = point.distanceTo(game.manager.Camera.getPosition());
+      game.net.RemotePlayer remotePlayer = getRemotePlayer();
+      if (remotePlayer != null) {
+         distance = Math.min(distance, point.distanceTo(remotePlayer.getRenderPos()));
+      }
+
+      return distance;
+   }
+
+   /**
+    * Host: broadcasts the fish around both players a few times per second.
+    * Only fish close to a player are packed (interest management); the client
+    * creates the ones it has not seen yet and drops the ones we stop naming.
+    */
+   private static void sendFishStates() {
+      game.environment.life.SeaLifeManager seaLife = game.environment.EnvironmentManager.getSeaLifeManager();
+      if (seaLife == null) {
+         return;
+      }
+
+      float limit = ChunkManager.viewDistance * 1.2F;
+      fishSyncScratch.clear();
+      seaLife.collectAll(fishSyncScratch);
+
+      fishEligible.clear();
+      java.util.HashSet<Integer> present = new java.util.HashSet<Integer>();
+
+      for (int i = 0; i < fishSyncScratch.size(); i++) {
+         game.environment.life.Fish fish = fishSyncScratch.get(i);
+         if (fish.getNetId() < 0 || distanceToNearestAnchor(fish.getPos()) > limit) {
+            continue;
+         }
+
+         fishEligible.add(fish);
+         present.add(fish.getNetId());
+      }
+
+      // Anything we announced that is gone now has to be dropped on the client.
+      java.util.Iterator<Integer> knownIt = knownFish.iterator();
+      while (knownIt.hasNext()) {
+         int id = knownIt.next();
+         if (!present.contains(id)) {
+            knownIt.remove();
+            sendFishDespawn(id);
+         }
+      }
+
+      for (int start = 0; start < fishEligible.size(); start += FISH_BATCH) {
+         int end = Math.min(fishEligible.size(), start + FISH_BATCH);
+         ByteArrayOutputStream bos = new ByteArrayOutputStream(3 + (end - start) * 20);
+         DataOutputStream d = new DataOutputStream(bos);
+
+         try {
+            d.writeByte(MSG_FISH_SYNC);
+            d.writeShort(end - start);
+
+            for (int i = start; i < end; i++) {
+               game.environment.life.Fish fish = fishEligible.get(i);
+               game.util.Point pos = fish.getPos();
+               game.util.Point rot = fish.getRotation();
+               int typeOrdinal = fish.getFishType() == null ? 0 : fish.getFishType().ordinal();
+               int packed = (game.environment.life.SeaLifeManager.kindOf(fish) & 7) | (typeOrdinal << 3);
+
+               d.writeShort(fish.getNetId());
+               d.writeByte(packed);
+               d.writeFloat(pos.x);
+               d.writeFloat(pos.y);
+               d.writeFloat(pos.z);
+               d.writeShort(toAngleShort(rot.x));
+               d.writeShort(toAngleShort(rot.y));
+               knownFish.add(fish.getNetId());
+            }
+         } catch (IOException e) {
+            return;
+         }
+
+         queueRaw(bos.toByteArray());
+      }
+   }
+
+   /** Angle in degrees packed into a short with half degree steps. */
+   private static int toAngleShort(float degrees) {
+      int value = (int)Math.round(degrees * 2.0);
+      if (value < Short.MIN_VALUE) {
+         return Short.MIN_VALUE;
+      }
+
+      return value > Short.MAX_VALUE ? Short.MAX_VALUE : value;
+   }
+
+   /** Host: tells the client that a fish was removed from the world. */
+   public static void sendFishDespawn(int id) {
+      if (id < 0 || role != Role.HOST || status != Status.CONNECTED || applyingRemote) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(3);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_FISH_DESPAWN);
+         d.writeShort(id);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Client: reports damage it applied to a mirrored fish so the host can resolve it. */
+   public static void sendFishHit(int id, float amount) {
+      if (id < 0 || amount <= 0.0F || role != Role.CLIENT || status != Status.CONNECTED || applyingRemote) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(7);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_FISH_HIT);
+         d.writeShort(id);
+         d.writeFloat(amount);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
+   /** Host: applies a hit the client reported against one of our fish. */
+   private static void applyRemoteFishHit(int id, float amount) {
+      game.environment.life.SeaLifeManager seaLife = game.environment.EnvironmentManager.getSeaLifeManager();
+      if (seaLife == null || amount <= 0.0F) {
+         return;
+      }
+
+      game.environment.life.Fish fish = seaLife.getByNetId(id);
+      if (fish != null && !fish.isRemoteControlled()) {
+         fish.applyRemoteDamage(amount);
+      }
+   }
+
 /** Applies a world state event received from the other peer (game thread). */
    private static void applyWorldMessage(byte[] frame) {
       if (frame.length < 1) {
@@ -2153,6 +2549,95 @@ public final class NetSession {
 
                break;
             }
+            case MSG_ENEMY_SYNC: {
+               int count = d.readUnsignedShort();
+               game.enemy.EnemyManager manager = GameScene.enemyManager;
+               game.enemy.EnemyType[] enemyTypes = game.enemy.EnemyType.values();
+
+               for (int i = 0; i < count; i++) {
+                  int enemyId = d.readUnsignedShort();
+                  int typeOrd = d.readUnsignedByte();
+                  float ex = d.readFloat();
+                  float ey = d.readFloat();
+                  float ez = d.readFloat();
+                  float dirX = d.readFloat();
+                  float dirY = d.readFloat();
+                  float dirZ = d.readFloat();
+                  float eHealth = d.readFloat();
+                  int flags = d.readUnsignedByte();
+                  int mouth = d.readUnsignedByte();
+                  int flash = d.readUnsignedByte();
+
+                  if (manager == null || typeOrd >= enemyTypes.length) {
+                     continue;
+                  }
+
+                  game.enemy.Enemy enemy = manager.getByNetId(enemyId);
+                  if (enemy == null) {
+                     enemy = manager.spawnRemote(enemyId, new Point(ex, ey, ez), enemyTypes[typeOrd]);
+                  }
+
+                  if (enemy != null) {
+                     enemy.applyNetState(ex, ey, ez, dirX, dirY, dirZ, eHealth,
+                           flags & 7, mouth / 255.0F, flash / 255.0F, (flags & 8) != 0, (flags & 16) != 0);
+                  }
+               }
+
+               break;
+            }
+            case MSG_ENEMY_DESPAWN: {
+               int enemyId = d.readUnsignedShort();
+               if (GameScene.enemyManager != null) {
+                  GameScene.enemyManager.removeRemote(enemyId);
+               }
+
+               break;
+            }
+            case MSG_FISH_SYNC: {
+               int count = d.readUnsignedShort();
+               game.environment.life.SeaLifeManager seaLife = game.environment.EnvironmentManager.getSeaLifeManager();
+               game.environment.life.FishType[] fishTypes = game.environment.life.FishType.values();
+
+               for (int i = 0; i < count; i++) {
+                  int fishId = d.readUnsignedShort();
+                  int packed = d.readUnsignedByte();
+                  float fx = d.readFloat();
+                  float fy = d.readFloat();
+                  float fz = d.readFloat();
+                  float rotX = d.readShort() / 2.0F;
+                  float rotY = d.readShort() / 2.0F;
+
+                  if (seaLife == null) {
+                     continue;
+                  }
+
+                  game.environment.life.Fish fish = seaLife.getByNetId(fishId);
+                  if (fish == null) {
+                     int typeOrdinal = (packed >> 3) & 31;
+                     if (typeOrdinal >= fishTypes.length) {
+                        typeOrdinal = 0;
+                     }
+
+                     fish = seaLife.spawnRemote(fishId, packed & 7, fishTypes[typeOrdinal],
+                           new Point(fx, fy, fz), rotX, rotY);
+                  }
+
+                  if (fish != null) {
+                     fish.applyNetState(fx, fy, fz, rotX, rotY);
+                  }
+               }
+
+               break;
+            }
+            case MSG_FISH_DESPAWN: {
+               int fishId = d.readUnsignedShort();
+               game.environment.life.SeaLifeManager seaLife = game.environment.EnvironmentManager.getSeaLifeManager();
+               if (seaLife != null) {
+                  seaLife.removeRemote(fishId);
+               }
+
+               break;
+            }
             case MSG_WATER: {
                int baseIdx = d.readByte();
                int len = d.readInt();
@@ -2414,6 +2899,10 @@ public final class NetSession {
       droidSyncBytes = null;
       waterTimer = 0.0F;
       droidTimer = 0.0F;
+      creatureTimer = 0.0F;
+      knownEnemies.clear();
+      fishTimer = 0.0F;
+      knownFish.clear();
 
       if (role == Role.CLIENT) {
          boolean inGame = isGameplayState() || Main.getGameState() == GameState.LOADING_GAME;
@@ -2499,5 +2988,10 @@ public final class NetSession {
       droidSyncBytes = null;
       waterTimer = 0.0F;
       droidTimer = 0.0F;
+      creatureTimer = 0.0F;
+      knownEnemies.clear();
+      fishTimer = 0.0F;
+      knownFish.clear();
+      nextFishId = 1;
    }
 }

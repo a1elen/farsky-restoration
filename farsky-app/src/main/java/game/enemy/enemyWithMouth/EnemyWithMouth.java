@@ -42,6 +42,8 @@ public abstract class EnemyWithMouth extends Enemy {
    private float nightAggroRange = 180.0F;
    protected float speedMult = 1.0F;
    protected float attackDamage = 10.0F;
+   /** Client: local bite cadence while mirroring a host creature that is attacking. */
+   private float remoteBiteCooldown = 0.0F;
 
    public EnemyWithMouth(Point position, float bodySize) {
       this.state = State.IDLE;
@@ -67,6 +69,7 @@ public abstract class EnemyWithMouth extends Enemy {
 
    @Override
    public final void update(float deltaTime) {
+      this.updateCombatFocus();
       this.updateSubclass(deltaTime);
       float damageMult = 0.1F;
       if (this.hitFlash > 0.0F) {
@@ -77,11 +80,11 @@ public abstract class EnemyWithMouth extends Enemy {
 
       switch (this.state) {
          case IDLE:
-            if (GameScene.avatar != null && GameScene.avatar.getCameraPos().distanceTo(this.position) < this.aggroRange) {
+            if (this.combatFocus != null && this.combatFocus.distanceTo(this.position) < this.aggroRange) {
                this.aggressive = true;
             }
 
-            if (GameScene.avatar != null && GameTime.isNight() && GameScene.avatar.getCameraPos().distanceTo(this.position) < this.nightAggroRange) {
+            if (this.combatFocus != null && GameTime.isNight() && this.combatFocus.distanceTo(this.position) < this.nightAggroRange) {
                this.aggressive = true;
             }
 
@@ -96,13 +99,13 @@ public abstract class EnemyWithMouth extends Enemy {
                SoundManager.setLoopingSourcePitch(this.soundSource, 1.0F);
             }
 
-            if (GameScene.avatar.isInside()) {
+            if (this.focusIsLocalAvatar() && GameScene.avatar.isInside()) {
                this.attackCooldown = 5.0F;
             }
 
             if (this.aggressive || this.isTargeted) {
                this.attackCooldown -= deltaTime;
-               if (this.attackCooldown <= 0.0F && !GameScene.avatar.isInside()) {
+               if (this.attackCooldown <= 0.0F && !(this.focusIsLocalAvatar() && GameScene.avatar.isInside())) {
                   this.state = State.ATTACKING;
                   this.attackCooldown = 4.0F + (float)Math.random() * 2.0F;
                   this.attackInterrupted = false;
@@ -130,7 +133,10 @@ public abstract class EnemyWithMouth extends Enemy {
          case ATTACKING:
             this.aggressive = true;
             damageMult = 1.0F;
-            if (GameScene.avatar.isInside() || !this.navigator.trySetTarget(GameScene.avatar.getCameraPos()) || this.attackInterrupted) {
+            if ((this.focusIsLocalAvatar() && GameScene.avatar.isInside())
+                  || this.getCombatFocus() == null
+                  || !this.navigator.trySetTarget(this.getCombatFocus())
+                  || this.attackInterrupted) {
                this.state = State.IDLE;
                this.attackInterrupted = false;
             }
@@ -166,7 +172,9 @@ public abstract class EnemyWithMouth extends Enemy {
       if (this.navigator.isDyingComplete()) {
          this.health = 0.0F;
          this.onDeath();
-         this.setTarget(null);
+         // die(null) marks the corpse dead (deathTimer 2.5 s) so this block
+         // runs exactly once; without it the body would drop loot every frame.
+         this.die(null);
          this.onRemove();
       }
 
@@ -175,6 +183,111 @@ public abstract class EnemyWithMouth extends Enemy {
       if (!this.dead) {
          SoundManager.setLoopingSourcePosition(this.soundSource, this.position);
       }
+   }
+
+   // ------------------------------------------------------------------
+   // Host-authoritative mirror (client side): follow the host transform,
+   // animate the jaw, and land the bite on this player's avatar.
+   // ------------------------------------------------------------------
+
+   @Override
+   protected EnemyNavigator netNavigator() {
+      return this.navigator;
+   }
+
+   @Override
+   protected void remoteTransform(float deltaTime) {
+      Point target = this.netTargetPosition();
+      if (target == null) {
+         return;
+      }
+
+      float k = netLerpFactor(deltaTime);
+      boolean snap = this.netTakeSnap(this.position.distanceTo(target));
+      if (snap) {
+         this.position.set(target);
+      } else {
+         this.position.x += (target.x - this.position.x) * k;
+         this.position.y += (target.y - this.position.y) * k;
+         this.position.z += (target.z - this.position.z) * k;
+      }
+
+      this.navigator.setPosition(this.position);
+      Point dir = this.netDirectionToward(this.navigator.getDirection(), snap, k);
+      if (dir != null) {
+         this.navigator.setDirection(dir);
+      }
+
+      this.position = this.navigator.getPosition();
+      this.navigator.tickDying(deltaTime);
+
+      float mouthTarget = this.netMouthTarget();
+      if (snap) {
+         this.mouthOpen = mouthTarget;
+      } else {
+         this.mouthOpen += (mouthTarget - this.mouthOpen) * k;
+      }
+
+      this.bodyMesh.blendToFrame(1, this.mouthOpen);
+      if (!this.dead) {
+         SoundManager.setLoopingSourcePosition(this.soundSource, this.position);
+      }
+   }
+
+   @Override
+   protected void remoteAfterTransform(float deltaTime) {
+      if (GameScene.avatar == null || GameScene.avatar.isInside()) {
+         return;
+      }
+
+      if (this.remoteBiteCooldown > 0.0F) {
+         this.remoteBiteCooldown -= deltaTime;
+      }
+
+      if (!CollisionDetector.containsPoint(GameScene.avatar.getCameraPos(), this.hitbox, this.position, this.navigator.getDirection().toAngles())) {
+         return;
+      }
+
+      // The host resolves its own avatar's bite; this one is ours to take.
+      if (this.state == State.ATTACKING && this.remoteBiteCooldown <= 0.0F) {
+         GameScene.avatar.takeDamage(this.attackDamage, "You were killed by " + this.type.getName());
+         this.remoteBiteCooldown = 2.0F;
+      }
+
+      GameScene.avatar.applyImpulse(new Point(0.0F, 1.0F, 0.0F).scaled(75.0F));
+   }
+
+   @Override
+   protected int currentNetStateOrdinal() {
+      return this.state.ordinal();
+   }
+
+   @Override
+   protected void applyNetStateOrdinal(int ordinal) {
+      State[] states = State.values();
+      if (ordinal >= 0 && ordinal < states.length) {
+         this.state = states[ordinal];
+      }
+   }
+
+   @Override
+   protected float currentNetMouth() {
+      return this.mouthOpen;
+   }
+
+   @Override
+   protected void applyNetMouth(float value) {
+      this.mouthOpen = value;
+   }
+
+   @Override
+   protected boolean currentNetDying() {
+      return this.navigator.isDying();
+   }
+
+   @Override
+   protected void applyNetDying() {
+      this.navigator.startDying();
    }
 
    @Override
@@ -200,10 +313,13 @@ public abstract class EnemyWithMouth extends Enemy {
          this.attackInterrupted = true;
          this.mouthOscillation = (float)(Math.PI * 5);
          this.hitFlash = 1.0F;
-         this.health = this.health - damage.getAmount();
          result.accumulate(damage);
-         if (this.health <= 0.0F) {
-            this.navigator.startDying();
+         // The mirrored copy never mutates health: the host applies the hit.
+         if (!this.remoteControlled) {
+            this.health = this.health - damage.getAmount();
+            if (this.health <= 0.0F) {
+               this.navigator.startDying();
+            }
          }
       }
 

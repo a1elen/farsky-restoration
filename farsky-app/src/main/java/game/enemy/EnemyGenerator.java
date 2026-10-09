@@ -62,31 +62,7 @@ public final class EnemyGenerator {
       if (this.spawnAccum >= spawnInterval) {
          this.spawnAccum = this.spawnAccum - spawnInterval;
          if (Math.random() < 0.8F) {
-            deltaTime = GameScene.avatar.getLookDir().toCoord().angle();
-
-            for (float theta = 0.0F; theta <= Math.PI * 2; theta = (float)(theta + (Math.PI / 10))) {
-               Coord spawnCoord = new Coord(Camera.getPosition().x, Camera.getPosition().z)
-                  .plus(new Coord(ChunkManager.viewDistance * Math.cos(deltaTime + theta), ChunkManager.viewDistance * Math.sin(deltaTime + theta)));
-               EnemyType enemyType = null;
-               if (Loading.worldManager.getStageAt(spawnCoord.x, spawnCoord.y) == Loading.worldManager.getStageAt(GameScene.avatar.getPos2D().x, GameScene.avatar.getPos2D().y)) {
-                  enemyType = selectEnemyType(Loading.worldManager.getStageAt(spawnCoord.x, spawnCoord.y));
-               }
-
-               if (enemyType != null) {
-                  if (enemyType == EnemyType.JELLYFISH) {
-                     for (int j = 0; j < 12; j++) {
-                        GameScene.enemyManager.spawn(spawnCoord, enemyType);
-                     }
-                  } else if (enemyType == EnemyType.BARRACUDA && GameTime.isNight()) {
-                     for (int j = 0; j < 3; j++) {
-                        GameScene.enemyManager.spawn(spawnCoord, enemyType);
-                     }
-                  } else {
-                     GameScene.enemyManager.spawn(spawnCoord, enemyType);
-                  }
-                  break;
-               }
-            }
+            this.spawnForPlayers();
          }
       }
 
@@ -105,6 +81,59 @@ public final class EnemyGenerator {
          }
 
          this.alertTarget = null;
+      }
+   }
+
+   /**
+    * Lays the spawn ring around every player in the session, so the host does
+    * not end up being the only one with creatures around them.
+    */
+   private void spawnForPlayers() {
+      float startAngle = GameScene.avatar.getLookDir().toCoord().angle();
+      this.spawnRing(Camera.getPosition().x, Camera.getPosition().z, GameScene.avatar.getPos2D(), startAngle);
+
+      game.net.RemotePlayer remote = game.net.NetSession.getRemotePlayer();
+      if (remote == null) {
+         return;
+      }
+
+      Point remotePos = remote.getRenderPos();
+      Coord localCenter = new Coord(Camera.getPosition().x, Camera.getPosition().z);
+      Coord remoteCenter = remotePos.toCoord();
+      // Two players swimming together share one ring instead of doubling up.
+      if (remoteCenter.distanceTo(localCenter) <= ChunkManager.viewDistance * 2.0F) {
+         return;
+      }
+
+      float yawRad = (float)Math.toRadians((double)remote.getRenderYaw());
+      Coord remoteLook = new Coord(-Math.sin((double)yawRad), -Math.cos((double)yawRad));
+      this.spawnRing(remotePos.x, remotePos.z, remoteCenter, remoteLook.angle());
+   }
+
+   /** One spawn ring at view distance around (ringX, ringZ), starting at startAngle. */
+   private void spawnRing(float ringX, float ringZ, Coord stageRef, float startAngle) {
+      for (float theta = 0.0F; theta <= Math.PI * 2; theta = (float)(theta + (Math.PI / 10))) {
+         Coord spawnCoord = new Coord(ringX, ringZ)
+            .plus(new Coord(ChunkManager.viewDistance * Math.cos(startAngle + theta), ChunkManager.viewDistance * Math.sin(startAngle + theta)));
+         EnemyType enemyType = null;
+         if (Loading.worldManager.getStageAt(spawnCoord.x, spawnCoord.y) == Loading.worldManager.getStageAt(stageRef.x, stageRef.y)) {
+            enemyType = selectEnemyType(Loading.worldManager.getStageAt(spawnCoord.x, spawnCoord.y));
+         }
+
+         if (enemyType != null) {
+            if (enemyType == EnemyType.JELLYFISH) {
+               for (int j = 0; j < 12; j++) {
+                  GameScene.enemyManager.spawn(spawnCoord, enemyType);
+               }
+            } else if (enemyType == EnemyType.BARRACUDA && GameTime.isNight()) {
+               for (int j = 0; j < 3; j++) {
+                  GameScene.enemyManager.spawn(spawnCoord, enemyType);
+               }
+            } else {
+               GameScene.enemyManager.spawn(spawnCoord, enemyType);
+            }
+            break;
+         }
       }
    }
 
