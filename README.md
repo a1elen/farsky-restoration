@@ -1,6 +1,6 @@
 # FarSky Restoration
 
-Unofficial update for [FarSky](https://farsky-interactive.itch.io/farsky) that restores the game and adds **online co-op multiplayer**.
+Unofficial update for [FarSky](https://farsky-interactive.itch.io/farsky) that restores the game and adds **online co-op multiplayer** (using AI).
 
 ## Features
 
