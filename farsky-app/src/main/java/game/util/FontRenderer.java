@@ -295,6 +295,8 @@ public final class FontRenderer {
       chaparralSpacing.put('9', 6);
       chaparralSpacing.put(' ', 8);
       chaparralSpacing.put('_', 3);
+      chillerSpacing.put('_', 4);
+      eccentricSpacing.put('_', 6);
       chaparralSpacing.put('°', 8);
       eccentricSpacing.put('A', 8);
       eccentricSpacing.put('B', 8);
@@ -487,19 +489,18 @@ public final class FontRenderer {
    }
 
    private static int getSpacing(char c) {
+      Integer spacing = null;
       if (currentFont == FontFamily.CHILLER) {
-         return chillerSpacing.get(c);
+         spacing = chillerSpacing.get(c);
+      } else if (currentFont == FontFamily.CHAPARRAL) {
+         spacing = chaparralSpacing.get(c);
+      } else if (currentFont == FontFamily.ECCENTRIC) {
+         spacing = eccentricSpacing.get(c);
       }
 
-      if (currentFont == FontFamily.CHAPARRAL) {
-         return chaparralSpacing.get(c);
-      }
-
-      if (currentFont == FontFamily.ECCENTRIC) {
-         return eccentricSpacing.get(c);
-      }
-
-      return 0;
+      // Glyphs missing from the table (e.g. '_' in Eccentric, foreign letters
+      // typed into a nickname) must not crash on unboxing: use a default.
+      return spacing != null ? spacing : 4;
    }
 
    private static void drawText(int x, int y, String text, float scale, float outline) {

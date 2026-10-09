@@ -18,11 +18,37 @@ import game.world.gen.SeedInput;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.GL11;
 
+/**
+ * Multiplayer browser in the default game-menu style: nickname and address are
+ * clickable buttons edited from the keyboard, three world slot buttons host a
+ * session directly and one button joins an address. The host owns every save
+ * file; the client keeps none (its progress travels through the host).
+ */
 public final class MultiplayerMenu extends MenuScreen {
+   private static final int SLOT_COUNT = 3;
+   private static final int FOCUS_NONE = -1;
+   private static final int FOCUS_NICK = 0;
+   private static final int FOCUS_ADDR = 1;
+
+   private Button nicknameButton;
+   private Button addressButton;
+   private final Button[] slotButtons = new Button[SLOT_COUNT];
+   private Button joinButton;
    private Button cancelButton;
+   private final String[] slotInfo = new String[SLOT_COUNT];
    private boolean keyHandled = false;
+   private int focus = FOCUS_NONE;
+   private String menuStatus = "";
+   private float slotInfoTimer = 0.0F;
+
+   /** Save slot path for a 1-based slot number; the choice seeds the session save. */
+   public static String getSlotPath(int slot) {
+      return Main.dataPath + "save/world" + slot + ".sav";
+   }
 
    public MultiplayerMenu() {
+      SaveManager.loadOptions();
+      this.refreshSlotInfo();
       this.refreshLayout();
    }
 
@@ -33,21 +59,43 @@ public final class MultiplayerMenu extends MenuScreen {
       }
 
       this.cancelButton.render();
+      int centerX = Display.getWidth() / 2;
+      int centerY = Display.getHeight() / 2;
       FontRenderer.setFontFamily(FontFamily.CHAPARRAL);
       GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
-      FontRenderer.drawCentered(Display.getWidth() / 2, Display.getHeight() / 2 - 170, "Multiplayer", 0.7F);
-      FontRenderer.drawCentered(Display.getWidth() / 2, Display.getHeight() / 2 + 45, "Address: " + NetSession.joinAddress + "_", 0.5F);
-      FontRenderer.drawCentered(Display.getWidth() / 2, Display.getHeight() / 2 + 80, NetSession.statusText, 0.5F);
+      FontRenderer.drawCentered(centerX, centerY - 195, "Multiplayer", 0.7F);
+
+      String status = this.menuStatus.isEmpty() ? NetSession.statusText : this.menuStatus;
+      if (status != null && !status.isEmpty()) {
+         GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.8F);
+         FontRenderer.drawCentered(centerX, centerY + 120, status, 0.5F);
+      }
 
       if (NetSession.status == NetSession.Status.OFFLINE || NetSession.status == NetSession.Status.ERROR) {
          GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.45F);
-         FontRenderer.drawCentered(Display.getWidth() / 2, Display.getHeight() / 2 + 115, "Type digits and dots to edit the address", 0.4F);
-         FontRenderer.drawCentered(Display.getWidth() / 2, Display.getHeight() / 2 + 140, "The host does not need to type anything", 0.4F);
+         String hint;
+         if (this.focus == FOCUS_NICK) {
+            hint = "Type to edit - Backspace deletes";
+         } else if (this.focus == FOCUS_ADDR) {
+            hint = "Type digits and dots to edit the address";
+         } else {
+            hint = "Click Nickname or Address to edit them";
+         }
+
+         FontRenderer.drawCentered(centerX, centerY + 150, hint, 0.4F);
+         FontRenderer.drawCentered(centerX, centerY + 172, "The host clicks a world slot to start", 0.4F);
       }
    }
 
    @Override
    protected final void update(float delta) {
+      this.slotInfoTimer += delta;
+      if (this.slotInfoTimer >= 2.0F) {
+         this.slotInfoTimer = 0.0F;
+         this.refreshSlotInfo();
+      }
+
+      this.refreshLabels();
       super.update(delta);
       this.cancelButton.update(delta);
 
@@ -55,60 +103,207 @@ public final class MultiplayerMenu extends MenuScreen {
          this.onButtonClicked(this.cancelButton);
       }
 
-      this.processAddressKeys();
+      this.processKeys();
    }
 
    @Override
    protected final void onButtonClicked(Button button) {
-      if (button.hasLabel("Host game")) {
-         if (NetSession.status == NetSession.Status.OFFLINE || NetSession.status == NetSession.Status.ERROR) {
-            startHostSession();
+      if (button == this.nicknameButton) {
+         this.focus = FOCUS_NICK;
+         this.keyHandled = RawInput.getFirstPressedKey() != -1;
+         return;
+      }
+
+      if (button == this.addressButton) {
+         this.focus = FOCUS_ADDR;
+         this.keyHandled = RawInput.getFirstPressedKey() != -1;
+         return;
+      }
+
+      if (button == this.joinButton) {
+         this.startSessionForJoin();
+         return;
+      }
+
+      for (int i = 0; i < SLOT_COUNT; i++) {
+         if (button == this.slotButtons[i]) {
+            this.startSessionForSlot(i + 1);
+            return;
          }
       }
 
-      if (button.hasLabel("Join game")) {
-         if (NetSession.status == NetSession.Status.OFFLINE || NetSession.status == NetSession.Status.ERROR) {
-            String address = NetSession.joinAddress;
-            NetSession.join(address.isEmpty() ? "127.0.0.1" : address);
-         }
-      }
-
-      if (button.hasLabel("Cancel")) {
+      if (button == this.cancelButton) {
          NetSession.disconnect();
          MenuController.currentMenuState = MenuState.MAIN;
       }
    }
 
    /**
-    * Host flow: fresh adventure world with a random seed, no intro cinematic
-    * (the joined player would only wait for it), and a listening server.
-    * Also invoked by the {@code -mpHost} command line flag.
+    * Host flow: load the chosen world slot (or create a fresh adventure world
+    * with a random seed when the slot is empty), skip the intro cinematic (the
+    * joined player would only wait for it) and start listening for a client.
+    * Slot overload is used by the menu buttons, no-arg by {@code -mpHost}.
     */
-   public static void startHostSession() {
+   public static void startHostSession(int slot) {
+      String slotPath = getSlotPath(slot);
+      Loading.skipCinematic = true;
+      if (new java.io.File(slotPath).exists()) {
+         game.saving.SaveSlot saveSlot = new game.saving.SaveSlot(slotPath);
+         if (!saveSlot.isEmpty()) {
+            saveSlot.load();
+            NetSession.host();
+            Main.gameState = GameState.LOADING_GAME;
+            return;
+         }
+      }
+
       SeedInput.randomize();
       GameScene.gameMode = GameMode.ADVENTURE;
-      SaveManager.generateSavePath();
+      SaveManager.setSavePath(slotPath);
       Loading.skipCinematic = true;
       Loading.newWorld(10.0F, 7.0F, EnemyGenerator.SpawningLevel.NORMAL);
       NetSession.host();
       Main.gameState = GameState.LOADING_GAME;
    }
 
-   @Override
-   public final void refreshLayout() {
-      this.buttons.clear();
-      this.buttons.add(new Button("Host game", Display.getWidth() / 2, Display.getHeight() / 2 - 120, 350.0F, 60.0F, FontFamily.ECCENTRIC));
-      this.buttons.add(new Button("Join game", Display.getWidth() / 2, Display.getHeight() / 2 - 40, 350.0F, 60.0F, FontFamily.ECCENTRIC));
-      this.cancelButton = new Button("Cancel", Display.getWidth() / 2, Display.getHeight() - 100, ButtonType.ACTION_BUTTON);
+   /** Command line flag {@code -mpHost}: world slot 1. */
+   public static void startHostSession() {
+      startHostSession(1);
    }
 
-   private void processAddressKeys() {
+   @Override
+   public final void refreshLayout() {
+      int centerX = Display.getWidth() / 2;
+      int centerY = Display.getHeight() / 2;
+      this.buttons.clear();
+      this.nicknameButton = new Button("Nickname", centerX, centerY - 150, ButtonType.ACTION_BUTTON);
+      this.addressButton = new Button("Address", centerX, centerY - 95, ButtonType.ACTION_BUTTON);
+      this.slotButtons[0] = new Button("Slot 1", centerX - 300, centerY - 25, ButtonType.ACTION_BUTTON);
+      this.slotButtons[1] = new Button("Slot 2", centerX, centerY - 25, ButtonType.ACTION_BUTTON);
+      this.slotButtons[2] = new Button("Slot 3", centerX + 300, centerY - 25, ButtonType.ACTION_BUTTON);
+      this.joinButton = new Button("Join game", centerX, centerY + 55, ButtonType.ACTION_BUTTON);
+      this.cancelButton = new Button("Cancel", centerX, Display.getHeight() - 100, ButtonType.ACTION_BUTTON);
+      this.buttons.add(this.nicknameButton);
+      this.buttons.add(this.addressButton);
+      this.buttons.add(this.slotButtons[0]);
+      this.buttons.add(this.slotButtons[1]);
+      this.buttons.add(this.slotButtons[2]);
+      this.buttons.add(this.joinButton);
+      this.refreshLabels();
+   }
+
+   /** Dynamic labels: current values (with a caret when focused) and slots. */
+   private void refreshLabels() {
+      if (this.nicknameButton == null) {
+         return;
+      }
+
+      this.nicknameButton.setLabel("Nickname: " + NetSession.nickname + (this.focus == FOCUS_NICK ? "_" : ""));
+      this.addressButton.setLabel("Address: " + NetSession.joinAddress + (this.focus == FOCUS_ADDR ? "_" : ""));
+      for (int i = 0; i < SLOT_COUNT; i++) {
+         this.slotButtons[i].setLabel("Slot " + (i + 1) + ": " + this.slotInfo[i]);
+      }
+   }
+
+   /** Validates the nickname: sanitized, trimmed and never empty / "Player". */
+   private boolean validateNickname() {
+      NetSession.nickname = NetSession.sanitizeNickname(NetSession.nickname);
+      if (NetSession.nickname.equalsIgnoreCase("Player")) {
+         this.menuStatus = "Enter a nickname (not 'Player')";
+         return false;
+      }
+
+      SaveManager.saveOption("Nickname", NetSession.nickname);
+      this.menuStatus = "";
+      return true;
+   }
+
+   private void startSessionForSlot(int slot) {
+      if (NetSession.status != NetSession.Status.OFFLINE && NetSession.status != NetSession.Status.ERROR) {
+         this.menuStatus = "Connection already active - press Cancel first";
+         return;
+      }
+
+      if (!this.validateNickname()) {
+         return;
+      }
+
+      startHostSession(slot);
+   }
+
+   private void startSessionForJoin() {
+      if (NetSession.status != NetSession.Status.OFFLINE && NetSession.status != NetSession.Status.ERROR) {
+         this.menuStatus = "Connection already active - press Cancel first";
+         return;
+      }
+
+      if (!this.validateNickname()) {
+         return;
+      }
+
+      String address = NetSession.joinAddress;
+      NetSession.join(address.isEmpty() ? "127.0.0.1" : address);
+   }
+
+   /**
+    * Focus-driven key handling: TAB switches the nickname and address fields.
+    * Nickname edits come from RawInput.typedChars (letters, digits, Cyrillic).
+    */
+   private void processKeys() {
       if (NetSession.status == NetSession.Status.CONNECTING || NetSession.status == NetSession.Status.LISTENING) {
          this.keyHandled = RawInput.getFirstPressedKey() != -1;
+         RawInput.typedChars.clear();
          return;
       }
 
       int key = RawInput.getFirstPressedKey();
+      if (key == 15 && !this.keyHandled) {
+         this.keyHandled = true;
+         this.focus = this.focus == FOCUS_NICK ? FOCUS_ADDR : FOCUS_NICK;
+      } else if (this.focus == FOCUS_NICK) {
+         this.processNicknameKeys(key);
+      } else if (this.focus == FOCUS_ADDR) {
+         this.processAddressKeys(key);
+      } else if (key == -1) {
+         this.keyHandled = false;
+      }
+
+      if (this.focus == FOCUS_NICK) {
+         for (int i = 0; i < RawInput.typedChars.size(); i++) {
+            char c = RawInput.typedChars.get(i);
+            if (c >= ' ' && NetSession.nickname.length() < 16) {
+               NetSession.nickname = NetSession.nickname + c;
+               this.menuStatus = "";
+            }
+         }
+
+         if (RawInput.typedChars.size() > 0) {
+            this.saveNickname();
+         }
+      }
+
+      RawInput.typedChars.clear();
+   }
+
+   private void processNicknameKeys(int key) {
+      if (key == -1) {
+         this.keyHandled = false;
+         return;
+      }
+
+      if (this.keyHandled) {
+         return;
+      }
+
+      this.keyHandled = true;
+      if (key == 14 && NetSession.nickname.length() > 0) {
+         NetSession.nickname = NetSession.nickname.substring(0, NetSession.nickname.length() - 1);
+         this.menuStatus = "";
+         this.saveNickname();
+      }
+   }
+
+   private void processAddressKeys(int key) {
       if (key == -1) {
          this.keyHandled = false;
          return;
@@ -124,6 +319,7 @@ public final class MultiplayerMenu extends MenuScreen {
       if (key == 14) {
          if (address.length() > 0) {
             NetSession.joinAddress = address.substring(0, address.length() - 1);
+            this.menuStatus = "";
          }
 
          return;
@@ -170,8 +366,26 @@ public final class MultiplayerMenu extends MenuScreen {
 
       if (digit >= 0 && digit <= 9 && address.length() < 15) {
          NetSession.joinAddress = address + digit;
+         this.menuStatus = "";
       } else if (digit == 10 && address.length() < 15 && !address.isEmpty() && !address.endsWith(".")) {
          NetSession.joinAddress = address + ".";
+         this.menuStatus = "";
       }
+   }
+
+   private void refreshSlotInfo() {
+      for (int i = 0; i < SLOT_COUNT; i++) {
+         String path = getSlotPath(i + 1);
+         game.saving.SlotPresentation info = null;
+         if (new java.io.File(path).exists()) {
+            info = SaveManager.readSlotPresentation(path);
+         }
+
+         this.slotInfo[i] = info == null ? "Empty" : info.getGameMode() + ", " + info.getMinutesPlayed() + " min";
+      }
+   }
+
+   private void saveNickname() {
+      SaveManager.saveOption("Nickname", NetSession.nickname);
    }
 }

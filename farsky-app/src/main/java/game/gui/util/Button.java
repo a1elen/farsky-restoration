@@ -535,6 +535,12 @@ public final class Button {
       this.selected = selected;
    }
 
+   /** Replaces the button text (dynamic labels, e.g. slot info). */
+   public final void setLabel(String label) {
+      this.label = label;
+      this.textWidth = FontRenderer.getTextWidth(label, 1.0F);
+   }
+
    public final boolean hasLabel(String label) {
       return this.label.equals(label);
    }

@@ -889,6 +889,16 @@ public class ChunkLayer {
       }
    }
 
+   /** Removes a submarine piece taken by the other peer. */
+   public final void removeSubmarinePartAt(int tileX, int tileZ) {
+      for (int i = this.submarineParts.size() - 1; i >= 0; i--) {
+         SubmarinePart part = (SubmarinePart)this.submarineParts.get(i);
+         if (part.getTileX() == tileX && part.getTileZ() == tileZ) {
+            this.submarineParts.remove(i);
+         }
+      }
+   }
+
    public void harvestTerrainOverlay() {
       if (this.terrainOverlays.size() > 0) {
          (this.terrainOverlays.get(0)).harvest(true);

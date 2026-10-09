@@ -49,6 +49,7 @@ public final class SubmarinePart extends ChunkElement {
          if (this.collected) {
             GameScene.avatar.collectSubmarinePiece(this.piece);
             SubmarineHud.onPieceFound(this.piece);
+            game.net.NetSession.sendSubmarinePieceTaken(this.chunkX, this.chunkZ, this.piece, GameScene.avatar.getPos(), GameScene.avatar.getPlayerState().hasAllSubmarinePieces());
             this.piece = null;
             Loading.worldManager.setGamePlayElmtAt(new GamePlayElmt(GamePlayType.NONE), this.chunkX, this.chunkZ);
             this.collected = false;
@@ -87,6 +88,14 @@ public final class SubmarinePart extends ChunkElement {
          GL11.glEnable(GL11.GL_CULL_FACE);
          Shaders.setUniform("emissive", false);
       }
+   }
+
+   public final int getTileX() {
+      return this.chunkX;
+   }
+
+   public final int getTileZ() {
+      return this.chunkZ;
    }
 
    @Override

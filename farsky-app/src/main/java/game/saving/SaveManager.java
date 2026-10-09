@@ -30,6 +30,9 @@ import java.util.ArrayList;
 
 public final class SaveManager {
    private static String currentSavePath = "";
+   private static final ArrayList<String> cachedOptionKeys = new ArrayList<>();
+   private static final ArrayList<String> cachedOptionValues = new ArrayList<>();
+   private static boolean optionsCached = false;
 
    public static synchronized void saveGame() {
       if (GameScene.avatar != null) {
@@ -63,7 +66,7 @@ public final class SaveManager {
                }
             }
 
-            if (GameScene.getSubmarines() != null) {
+            if (GameScene.getDroids() != null) {
                for (int i = 0; i < GameScene.getDroids().size(); i++) {
                   oos.writeObject(GameScene.getDroids().get(i));
                }
@@ -215,6 +218,170 @@ public final class SaveManager {
       }
    }
 
+   /** Points the next saveGame() at a fixed path (multiplayer world slots). */
+   public static void setSavePath(String path) {
+      currentSavePath = path;
+      if (Main.isVerbose) {
+         System.out.println(currentSavePath);
+      }
+   }
+
+   /** Header magic for client progress blobs stored by the host. */
+   private static final int CLIENT_STATE_MAGIC = 0x46534331;
+
+   /**
+    * Serializes the local player's progress (world seed, position, inventory).
+    * The client hands this to the host, which stores it in its player file.
+    * Returns null when there is nothing to serialize.
+    */
+   public static byte[] createClientState() {
+      if (GameScene.avatar == null) {
+         return null;
+      }
+
+      try {
+         java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(512);
+         ObjectOutputStream oos = new ObjectOutputStream(bos);
+         oos.writeInt(CLIENT_STATE_MAGIC);
+         oos.writeInt(game.world.gen.SeedInput.getSeed());
+         game.util.Point pos = GameScene.avatar.getPos();
+         oos.writeFloat(pos.x);
+         oos.writeFloat(pos.y);
+         oos.writeFloat(pos.z);
+         oos.writeObject(GameScene.avatar.getPlayerState());
+         oos.writeObject(GameScene.avatar.getInventory());
+         oos.flush();
+         return bos.toByteArray();
+      } catch (Throwable t) {
+         return null;
+      }
+   }
+
+   /**
+    * Applies progress previously stored by the host. Silently ignored when the
+    * blob belongs to another world (seed mismatch) or cannot be read.
+    */
+   public static boolean applyClientState(byte[] data) {
+      if (data == null || GameScene.avatar == null) {
+         return false;
+      }
+
+      try {
+         ObjectInputStream ois = new ObjectInputStream(new java.io.ByteArrayInputStream(data));
+         if (ois.readInt() != CLIENT_STATE_MAGIC || ois.readInt() != game.world.gen.SeedInput.getSeed()) {
+            return false;
+         }
+
+         float x = ois.readFloat();
+         float y = ois.readFloat();
+         float z = ois.readFloat();
+
+         // Newer blobs carry the vitals before the inventory; older files
+         // (written before PlayerState was added) start straight with it.
+         game.player.PlayerState savedState = null;
+         PlayerInventory saved;
+         Object first = ois.readObject();
+         if (first instanceof game.player.PlayerState) {
+            savedState = (game.player.PlayerState)first;
+            saved = (PlayerInventory)ois.readObject();
+         } else {
+            saved = (PlayerInventory)first;
+         }
+
+         if (savedState != null) {
+            game.player.PlayerState current = GameScene.avatar.getPlayerState();
+            current.copyFrom(savedState);
+            current.adjustOxygenLevel(savedState.getOxygenLevel() - current.getOxygenLevel(), Float.MAX_VALUE);
+         }
+
+         game.util.Point pos = new game.util.Point(x, y, z);
+         GameScene.avatar.setPos(pos);
+         GameScene.avatar.setLastSafeSpot(pos);
+         game.net.NetSession.copyInventoryContents(saved, GameScene.avatar.getInventory());
+         return true;
+      } catch (Throwable t) {
+         return false;
+      }
+   }
+
+   /**
+    * Host side: writes the connected client's progress next to the world file,
+    * keyed by nickname (save/players/&lt;world&gt;_&lt;nickname&gt;.sav), so a player
+    * keeps their inventory when rejoining the same world.
+    */
+   public static synchronized void savePlayerProgress(String nickname, byte[] state) {
+      String path = playerProgressPath(nickname);
+      if (path == null || state == null || state.length == 0) {
+         return;
+      }
+
+      try {
+         new File(Main.dataPath + "save/players").mkdirs();
+         FileOutputStream fos = new FileOutputStream(path + ".tmp");
+         fos.write(state);
+         fos.close();
+         File tmpFile = new File(path + ".tmp");
+         File saveFile = new File(path);
+         saveFile.delete();
+         tmpFile.renameTo(saveFile);
+         if (Main.isVerbose) {
+            System.out.println("Saved player: " + path);
+         }
+      } catch (IOException e) {
+         e.printStackTrace();
+      }
+   }
+
+   /** Host side: reads the client's progress for the current world, or null. */
+   public static synchronized byte[] loadPlayerProgress(String nickname) {
+      String path = playerProgressPath(nickname);
+      if (path == null) {
+         return null;
+      }
+
+      try {
+         File file = new File(path);
+         if (!file.exists()) {
+            return null;
+         }
+
+         return java.nio.file.Files.readAllBytes(file.toPath());
+      } catch (Throwable t) {
+         return null;
+      }
+   }
+
+   /** Save file for one player's progress inside the current world (host only). */
+   private static String playerProgressPath(String nickname) {
+      if (currentSavePath == null || currentSavePath.isEmpty()) {
+         return null;
+      }
+
+      String world = currentSavePath;
+      int slash = Math.max(world.lastIndexOf('/'), world.lastIndexOf('\\'));
+      if (slash >= 0) {
+         world = world.substring(slash + 1);
+      }
+
+      if (world.endsWith(".sav")) {
+         world = world.substring(0, world.length() - 4);
+      }
+
+      StringBuilder name = new StringBuilder();
+      String nick = nickname == null ? "" : nickname;
+      for (int i = 0; i < nick.length() && name.length() < 24; i++) {
+         char c = nick.charAt(i);
+         name.append(Character.isLetterOrDigit(c) || c == '-' || c == '_' ? c : '_');
+      }
+
+      String safe = name.toString();
+      if (safe.replace("_", "").isEmpty()) {
+         safe = "player";
+      }
+
+      return Main.dataPath + "save/players/" + world + "_" + safe + ".sav";
+   }
+
    public static void deleteSave() {
       new File(currentSavePath).delete();
    }
@@ -224,6 +391,11 @@ public final class SaveManager {
    }
 
    public static void saveOptions(ArrayList<String> keys, ArrayList<String> values) {
+      cachedOptionKeys.clear();
+      cachedOptionValues.clear();
+      cachedOptionKeys.addAll(keys);
+      cachedOptionValues.addAll(values);
+      optionsCached = true;
       try {
          FileOutputStream fos = new FileOutputStream(Main.dataPath + "options.sav.tmp");
          ObjectOutputStream oos = new ObjectOutputStream(fos);
@@ -248,6 +420,9 @@ public final class SaveManager {
    }
 
    public static void loadOptions() {
+      cachedOptionKeys.clear();
+      cachedOptionValues.clear();
+      optionsCached = false;
       FileInputStream fis = null;
       ObjectInputStream ois = null;
 
@@ -261,6 +436,8 @@ public final class SaveManager {
                String key = (String)obj;
                obj = ois.readObject();
                if (obj != null) {
+                  cachedOptionKeys.add(key);
+                  cachedOptionValues.add((String)obj);
                   OptionsMenu.applySetting(key, (String)obj);
                }
             }
@@ -277,6 +454,23 @@ public final class SaveManager {
       if (Main.isVerbose) {
          System.out.println("Loaded Options: " + Main.dataPath + "options.sav");
       }
+   }
+
+   /** Updates a single option key without dropping the others, then rewrites the file. */
+   public static void saveOption(String key, String value) {
+      if (!optionsCached) {
+         loadOptions();
+      }
+
+      int idx = cachedOptionKeys.indexOf(key);
+      if (idx >= 0) {
+         cachedOptionValues.set(idx, value);
+      } else {
+         cachedOptionKeys.add(key);
+         cachedOptionValues.add(value);
+      }
+
+      saveOptions(cachedOptionKeys, cachedOptionValues);
    }
 
    public static void saveAchievements() {

@@ -36,6 +36,16 @@ public final class GameTime {
       updateDayCycle(80.0F);
    }
 
+   /**
+    * Multiplayer: snaps this client's clock, play time and light level to the
+    * host's authoritative values.
+    */
+   public static void sync(float playTime, float time, float light) {
+      totalPlayTime = playTime;
+      dayTime = time;
+      lightLevel = Math.max(0.3F, Math.min(1.0F, light));
+   }
+
    public static void update(float delta) {
       if (Main.getGameState() != GameState.PAUSED) {
          totalPlayTime += delta;

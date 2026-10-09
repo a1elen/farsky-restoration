@@ -104,7 +104,7 @@ public final class ChatHud {
          inputBuffer = "";
          if (!text.isEmpty()) {
             NetSession.sendChat(text);
-            showMessage(text);
+            showMessage(NetSession.nickname + ": " + text);
          }
 
          return false;

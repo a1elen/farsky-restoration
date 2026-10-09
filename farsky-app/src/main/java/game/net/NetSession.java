@@ -10,6 +10,7 @@ import game.inventory.types.Inventory;
 import game.manager.GameMode;
 import game.manager.GameScene;
 import game.manager.GameState;
+import game.manager.GameTime;
 import game.manager.Loading;
 import game.saving.SaveManager;
 import game.seafloorBase.SeafloorBase;
@@ -31,7 +32,10 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.nio.FloatBuffer;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
 
 /**
  * Minimal TCP session for two players (host + client).
@@ -39,10 +43,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * <p>Protocol: frames of {@code int length} + {@code byte[length] payload},
  * first payload byte is the message type:</p>
  * <ul>
- *   <li>{@link #MSG_HELLO}    client -> host: protocol version</li>
+ *   <li>{@link #MSG_HELLO}    client -> host: protocol version and nickname</li>
  *   <li>{@link #MSG_WELCOME}  host -> client: world seed and settings, so the
  *       client can deterministically rebuild the same world</li>
  *   <li>{@link #MSG_POS}      both: player position and yaw at 20 Hz</li>
+   *   <li>{@link #MSG_PLAYER_STATE} client -> host: progress snapshot that the
+   *       host stores in its player file and replays on the next join</li>
  * </ul>
  *
  * <p>All game state changes happen on the game thread inside {@link #update(float)};
@@ -53,7 +59,7 @@ public final class NetSession {
    public enum Status { OFFLINE, LISTENING, CONNECTING, CONNECTED, ERROR }
 
    public static final int DEFAULT_PORT = 45678;
-   private static final int PROTOCOL_VERSION = 4;
+   private static final int PROTOCOL_VERSION = 6;
    private static final byte MSG_HELLO = 1;
    private static final byte MSG_WELCOME = 2;
    private static final byte MSG_POS = 3;
@@ -79,6 +85,12 @@ public final class NetSession {
    private static final byte MSG_DROID_SYNC = 23;
    private static final byte MSG_WATER = 24;
    private static final byte MSG_POT_STATE = 25;
+   private static final byte MSG_SUB_PIECE = 26;
+   /** Client -> host: latest client progress (position + inventory) for host-side storage. */
+   private static final byte MSG_PLAYER_STATE = 27;
+
+   /** Host -> client: authoritative clock + light level (day/night sync). */
+   private static final byte MSG_TIME = 28;
    // Kinds carried by MSG_OBJ_SPAWN (placed outside objects).
    public static final int OBJ_EXTRACTOR = 0;
    public static final int OBJ_EXTRACTOR_OVERPOWERED = 1;
@@ -88,6 +100,7 @@ public final class NetSession {
    private static final float SEND_INTERVAL = 0.05F;
    private static final float WATER_SEND_INTERVAL = 2.0F;
    private static final float DROID_SEND_INTERVAL = 0.2F;
+   private static final float PLAYER_STATE_INTERVAL = 2.5F;
    private static final int CONNECT_TIMEOUT_MS = 5000;
 
    // Block operation codes for MSG_BLOCK_OP.
@@ -104,6 +117,14 @@ public final class NetSession {
    public static volatile Status status = Status.OFFLINE;
    /** Human readable status line for the menu. */
    public static volatile String statusText = "";
+   /** This player's nickname; shown to the peer and persisted via options.sav. */
+   public static volatile String nickname = "Player";
+   /** The peer's nickname received during the handshake. */
+   public static volatile String remoteNickname = "Player";
+   /** Screen position of the remote player's nametag (set during the 3D pass). */
+   private static float nametagX = 0.0F;
+   private static float nametagY = 0.0F;
+   private static boolean nametagVisible = false;
 
    public static int port = DEFAULT_PORT;
    public static String joinAddress = "127.0.0.1";
@@ -116,6 +137,7 @@ public final class NetSession {
    private static volatile ServerSocket serverSocket;
    private static volatile Socket activeSocket;
    private static volatile DataOutputStream activeOut;
+   private static volatile Thread writerThread = null;
 
    private static final ConcurrentLinkedQueue<byte[]> incoming = new ConcurrentLinkedQueue<byte[]>();
    private static final ConcurrentLinkedQueue<byte[]> outgoing = new ConcurrentLinkedQueue<byte[]>();
@@ -123,6 +145,16 @@ public final class NetSession {
    private static RemotePlayer remote = null;
    private static boolean welcomed = false;
    private static boolean pendingSpawn = false;
+   private static byte[] pendingPieces = null;
+   /** Client: progress blob from the welcome, applied after the avatar spawns. */
+   private static byte[] pendingPlayerState = null;
+   /** Host: latest progress received from the client, written on save/leave. */
+   private static byte[] bufferedClientState = null;
+   private static boolean handshakeDone = false;
+   private static float playerStateTimer = 0.0F;
+   private static final FloatBuffer projModel = BufferUtils.createFloatBuffer(16);
+   private static final FloatBuffer projProj = BufferUtils.createFloatBuffer(16);
+   private static final FloatBuffer projViewport = BufferUtils.createFloatBuffer(16);
    private static float sendTimer = 0.0F;
    private static boolean welcomeSent = false;
    private static boolean applyingRemote = false;
@@ -187,6 +219,11 @@ public final class NetSession {
     * True while this side mirrors the host's world (client role, linked and in
     * game): local AI simulation is skipped so host snapshots stay authoritative.
     */
+   /** True while this instance joins someone else's session as the client. */
+   public static boolean isClient() {
+      return role == Role.CLIENT;
+   }
+
    public static boolean isClientMirror() {
       return role == Role.CLIENT && status == Status.CONNECTED && isGameplayState();
    }
@@ -197,6 +234,7 @@ public final class NetSession {
          return;
       }
 
+      nickname = normalizeNickname(nickname, "Host");
       resetState();
       role = Role.HOST;
       status = Status.LISTENING;
@@ -218,6 +256,7 @@ public final class NetSession {
          return;
       }
 
+      nickname = normalizeNickname(nickname, "Client");
       resetState();
       role = Role.CLIENT;
       status = Status.CONNECTING;
@@ -240,7 +279,12 @@ public final class NetSession {
          return;
       }
 
+      // Host: persist the client's progress. Then make sure the writer thread
+      // stopped so a final queued push (e.g. Save & Quit) still goes out.
+      flushClientState();
       running = false;
+      awaitWriter();
+      drainOutgoing();
       closeActive();
       closeServer();
       resetState();
@@ -262,14 +306,22 @@ public final class NetSession {
          return;
       }
 
+      // Drain queued frames first: the handshake nickname (HELLO) must land
+      // before the welcome is built, and the client's final state push before
+      // onLinkLost reacts to the closed link.
+      byte[] earlyFrame;
+      while ((earlyFrame = incoming.poll()) != null) {
+         handleMessage(earlyFrame);
+      }
+
       if (eventClientJoined) {
          eventClientJoined = false;
          status = Status.CONNECTED;
-         statusText = role == Role.HOST ? "Player connected." : "Connected. Receiving world data...";
+         statusText = role == Role.HOST ? remoteNickname + " connected." : "Connected. Receiving world data...";
       }
 
       // The welcome with the world snapshot must be built on the game thread.
-      if (role == Role.HOST && status == Status.CONNECTED && !welcomeSent && activeOut != null) {
+      if (role == Role.HOST && status == Status.CONNECTED && !welcomeSent && handshakeDone && activeOut != null) {
          welcomeSent = true;
          queueRaw(buildWelcome());
       }
@@ -298,6 +350,13 @@ public final class NetSession {
          if (sendTimer >= SEND_INTERVAL) {
             sendTimer = 0.0F;
             sendPosition();
+            if (role == Role.CLIENT) {
+               playerStateTimer += delta;
+               if (playerStateTimer >= PLAYER_STATE_INTERVAL) {
+                  playerStateTimer = 0.0F;
+                  sendPlayerState();
+               }
+            }
          }
 
          // Host mirrors slowly changing shared state (water levels, droids).
@@ -305,6 +364,7 @@ public final class NetSession {
             waterTimer += delta;
             if (waterTimer >= WATER_SEND_INTERVAL) {
                waterTimer = 0.0F;
+               sendTimeState();
                sendWaterState();
             }
 
@@ -318,7 +378,27 @@ public final class NetSession {
 
       if (pendingSpawn && Main.getGameState() == GameState.PLAYING && GameScene.avatar != null) {
          pendingSpawn = false;
+         if (pendingPieces != null && GameScene.avatar != null) {
+            GameScene.avatar.getPlayerState().submarinePieces.clear();
+            game.submarine.SubmarinePiece[] allPieces = game.submarine.SubmarinePiece.values();
+            for (int i = 0; i < pendingPieces.length; i++) {
+               int pieceOrdinal = pendingPieces[i];
+               if (pieceOrdinal >= 0 && pieceOrdinal < allPieces.length) {
+                  GameScene.avatar.getPlayerState().addSubmarinePiece(allPieces[pieceOrdinal]);
+               }
+            }
+
+            pendingPieces = null;
+         }
+
          spawnClientAvatar();
+
+         // The host sent our saved progress inside the welcome: restore it now
+         // that the fresh avatar exists (position + inventory + safe spot).
+         if (pendingPlayerState != null) {
+            SaveManager.applyClientState(pendingPlayerState);
+            pendingPlayerState = null;
+         }
       }
 
       if (remote != null) {
@@ -328,8 +408,10 @@ public final class NetSession {
 
    /** Renders the remote player; call from the world render pass with the enemy shader bound. */
    public static void renderRemote() {
+      nametagVisible = false;
       if (remote != null && status == Status.CONNECTED) {
          remote.render();
+         updateNametag();
       }
    }
 
@@ -419,6 +501,7 @@ public final class NetSession {
 
    private static void beginConnection(Socket s) throws IOException {
       s.setTcpNoDelay(true);
+      remoteNickname = "Player";
       activeSocket = s;
       activeOut = new DataOutputStream(s.getOutputStream());
       incoming.clear();
@@ -438,6 +521,10 @@ public final class NetSession {
       waterTimer = 0.0F;
       droidTimer = 0.0F;
       clientAlive = true;
+      handshakeDone = false;
+      pendingPlayerState = null;
+      bufferedClientState = null;
+      playerStateTimer = 0.0F;
       welcomeSent = false;
       eventClientJoined = false;
       eventLinkLost = false;
@@ -473,6 +560,43 @@ public final class NetSession {
             s.close();
          } catch (IOException e) {
             // ignore
+         }
+      }
+   }
+
+   /** Waits for the writer thread so drainOutgoing can write without races. */
+   private static void awaitWriter() {
+      Thread wt = writerThread;
+      if (wt == null) {
+         return;
+      }
+
+      try {
+         wt.join(100L);
+      } catch (InterruptedException e) {
+         // ignore
+      }
+   }
+
+   /** Sends queued frames synchronously; only called after the writer stopped. */
+   private static void drainOutgoing() {
+      if (writerThread != null && writerThread.isAlive()) {
+         return;
+      }
+
+      DataOutputStream os = activeOut;
+      if (os == null) {
+         return;
+      }
+
+      byte[] frame;
+      while ((frame = outgoing.poll()) != null) {
+         try {
+            os.writeInt(frame.length);
+            os.write(frame);
+            os.flush();
+         } catch (IOException e) {
+            break;
          }
       }
    }
@@ -531,6 +655,7 @@ public final class NetSession {
             }
          }
       }, "NetWriter");
+      writerThread = t;
       t.setDaemon(true);
       t.start();
    }
@@ -548,12 +673,48 @@ public final class NetSession {
 
       try {
          switch (frame[0]) {
+            case MSG_HELLO: {
+               handshakeDone = true;
+               int clientVersion = d.readInt();
+               if (clientVersion != PROTOCOL_VERSION) {
+                  statusText = "Client runs an incompatible version.";
+                  break;
+               }
+
+               remoteNickname = sanitizeNickname(d.readUTF());
+               if (role == Role.HOST) {
+                  statusText = remoteNickname + " connected.";
+               }
+
+               break;
+            }
             case MSG_WELCOME:
                if (role == Role.CLIENT) {
                   handleWelcome(d);
                }
 
                break;
+            case MSG_PLAYER_STATE: {
+               if (role == Role.HOST) {
+                  byte[] progress = new byte[d.available()];
+                  d.readFully(progress);
+                  if (progress.length > 0) {
+                     bufferedClientState = progress;
+                  }
+               }
+
+               break;
+            }
+            case MSG_TIME: {
+               if (role == Role.CLIENT) {
+                  float hostPlayTime = d.readFloat();
+                  float hostClock = d.readFloat();
+                  float hostLight = d.readFloat();
+                  GameTime.sync(hostPlayTime, hostClock, hostLight);
+               }
+
+               break;
+            }
             case MSG_POS: {
                float x = d.readFloat();
                float y = d.readFloat();
@@ -616,6 +777,7 @@ public final class NetSession {
             case MSG_DROID_STATE:
             case MSG_DROID_SYNC:
             case MSG_POT_STATE:
+             case MSG_SUB_PIECE:
             case MSG_WATER:
                if (isGameplayState()) {
                   applyWorldMessage(frame);
@@ -730,6 +892,27 @@ public final class NetSession {
          d.readFully(tombInvBytes);
       }
 
+      remoteNickname = sanitizeNickname(d.readUTF());
+      int welcomePieceCount = d.readByte();
+      pendingPieces = welcomePieceCount > 0 ? new byte[welcomePieceCount] : null;
+      for (int i = 0; pendingPieces != null && i < pendingPieces.length; i++) {
+         pendingPieces[i] = d.readByte();
+      }
+
+      // The joining player's stored progress (inventory + position), if any.
+      int progressLen = d.readInt();
+      if (progressLen > MAX_FRAME_SIZE) {
+         disconnect();
+         status = Status.ERROR;
+         statusText = "Host sent invalid player data.";
+         return;
+      }
+
+      pendingPlayerState = progressLen > 0 ? new byte[progressLen] : null;
+      if (pendingPlayerState != null) {
+         d.readFully(pendingPlayerState);
+      }
+
       World world;
       ArrayList<SeafloorBase> bases;
       java.util.ArrayList<game.outsideObj.OutsideObj> sessionObjects;
@@ -818,6 +1001,34 @@ public final class NetSession {
       queueRaw(bos.toByteArray());
    }
 
+   /** Role specific default when the nickname is empty or still "Player". */
+   private static String normalizeNickname(String raw, String fallback) {
+      String trimmed = raw == null ? "" : raw.trim();
+      if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("Player")) {
+         return fallback;
+      }
+
+      return trimmed;
+   }
+
+   /** Trims, strips control characters and caps the nickname to a sane length. */
+   public static String sanitizeNickname(String raw) {
+      if (raw == null) {
+         return "Player";
+      }
+
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < raw.length() && sb.length() < 16; i++) {
+         char c = raw.charAt(i);
+         if (c >= ' ') {
+            sb.append(c);
+         }
+      }
+
+      String result = sb.toString().trim();
+      return result.isEmpty() ? "Player" : result;
+   }
+
    private static byte[] buildHello() {
       ByteArrayOutputStream bos = new ByteArrayOutputStream(5);
       DataOutputStream d = new DataOutputStream(bos);
@@ -825,6 +1036,7 @@ public final class NetSession {
       try {
          d.writeByte(MSG_HELLO);
          d.writeInt(PROTOCOL_VERSION);
+         d.writeUTF(sanitizeNickname(nickname));
       } catch (IOException e) {
          // Cannot happen on a byte array stream.
       }
@@ -843,7 +1055,14 @@ public final class NetSession {
          d.writeByte(GameScene.gameMode.ordinal());
          d.writeFloat(WorldManager.dayTime);
          d.writeFloat(WorldManager.nightTime);
-         d.writeByte(WorldManager.spawning.ordinal());
+                   // The spawning level lives in the world object: the static is only set
+          // for fresh worlds, so a loaded slot must be read through worldManager.
+          EnemyGenerator.SpawningLevel spawnLevel = Loading.worldManager != null ? Loading.worldManager.getSpawning() : WorldManager.spawning;
+          if (spawnLevel == null) {
+             spawnLevel = EnemyGenerator.SpawningLevel.NORMAL;
+          }
+
+          d.writeByte(spawnLevel.ordinal());
 
          // World snapshot: late joiners inherit opened chests, mined ore, harvested plants.
          World hostWorld = Loading.worldManager != null ? Loading.getPendingWorld() : null;
@@ -878,6 +1097,30 @@ public final class NetSession {
              d.writeFloat(GameScene.worldChest.getPosition().y);
              d.writeFloat(GameScene.worldChest.getPosition().z);
              d.write(tombInvBytes);
+          } else {
+             d.writeInt(-1);
+          }
+
+          d.writeUTF(sanitizeNickname(nickname));
+
+          // Collected submarine pieces are shared progress between both players.
+          int hostPieces = 0;
+          byte[] hostPieceBytes = new byte[9];
+          if (GameScene.avatar != null && GameScene.avatar.getPlayerState() != null) {
+             java.util.ArrayList<game.submarine.SubmarinePiece> pieceList = GameScene.avatar.getPlayerState().submarinePieces;
+             for (int i = 0; i < pieceList.size() && hostPieces < 9; i++) {
+                hostPieceBytes[hostPieces++] = (byte)pieceList.get(i).ordinal();
+             }
+          }
+
+          d.writeByte(hostPieces);
+          d.write(hostPieceBytes, 0, hostPieces);
+
+          // The joining player's own progress, kept in the host's player file.
+          byte[] clientProgress = SaveManager.loadPlayerProgress(remoteNickname);
+          if (clientProgress != null && clientProgress.length > 0) {
+             d.writeInt(clientProgress.length);
+             d.write(clientProgress);
           } else {
              d.writeInt(-1);
           }
@@ -1494,6 +1737,31 @@ public final class NetSession {
       queueRaw(bos.toByteArray());
    }
 
+   /** Human action: the local player picked up a submarine piece off the seafloor. */
+   public static void sendSubmarinePieceTaken(int tileX, int tileZ, game.submarine.SubmarinePiece piece, game.util.Point pos, boolean completed) {
+      if (piece == null || !shouldSendWorldEvents()) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(20);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_SUB_PIECE);
+         d.writeInt(tileX);
+         d.writeInt(tileZ);
+         d.writeByte(piece.ordinal());
+         d.writeFloat(pos.x);
+         d.writeFloat(pos.y);
+         d.writeFloat(pos.z);
+         d.writeBoolean(completed);
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
+   }
+
    /** Host: pushes every base's water level fill so floods match on both sides. */
    private static void sendWaterState() {
       ArrayList<SeafloorBase> bases = GameScene.getSeafloorBases();
@@ -1521,6 +1789,23 @@ public final class NetSession {
 
          queueRaw(bos.toByteArray());
       }
+   }
+
+   /** Host: pushes the authoritative day/night clock so clients stay in sync. */
+   private static void sendTimeState() {
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(13);
+      DataOutputStream d = new DataOutputStream(bos);
+
+      try {
+         d.writeByte(MSG_TIME);
+         d.writeFloat(GameTime.totalPlayTime);
+         d.writeFloat(GameTime.dayTime);
+         d.writeFloat(GameTime.getLightLevel());
+      } catch (IOException e) {
+         return;
+      }
+
+      queueRaw(bos.toByteArray());
    }
 
    /** Host: mirrors droid positions and modes to the client several times per second. */
@@ -1705,7 +1990,7 @@ public final class NetSession {
 
                byte[] bytes = new byte[len];
                d.readFully(bytes);
-               game.gui.ChatHud.showMessage(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+               game.gui.ChatHud.showMessage(remoteNickname + ": " + new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
                break;
             }
             case MSG_TOMB_SPAWN: {
@@ -1891,6 +2176,35 @@ public final class NetSession {
                GameScene.spawnSubmarine(new Point(sx, sy, sz), false);
                break;
             }
+            case MSG_SUB_PIECE: {
+               int pieceTileX = d.readInt();
+               int pieceTileZ = d.readInt();
+               int pieceOrdinal = d.readByte();
+               float pieceX = d.readFloat();
+               float pieceY = d.readFloat();
+               float pieceZ = d.readFloat();
+               boolean pieceCompleted = d.readBoolean();
+               if (Loading.worldManager != null) {
+                  Loading.worldManager.setGamePlayElmtAt(new game.world.structure.GamePlayElmt(game.world.structure.GamePlayType.NONE), pieceTileX, pieceTileZ);
+               }
+
+               game.chunks.Chunk pieceChunk = ChunkManager.getActiveChunkAt(pieceTileX * 128, pieceTileZ * 128);
+               if (pieceChunk != null) {
+                  pieceChunk.removeSubmarinePart(pieceTileX, pieceTileZ);
+               }
+
+               game.submarine.SubmarinePiece[] allPieces = game.submarine.SubmarinePiece.values();
+               if (pieceOrdinal >= 0 && pieceOrdinal < allPieces.length && GameScene.avatar != null && !GameScene.avatar.hasSubmarinePiece(allPieces[pieceOrdinal])) {
+                  int piecesBefore = GameScene.avatar.getSubmarinePiecesCount();
+                  GameScene.avatar.getPlayerState().addSubmarinePiece(allPieces[pieceOrdinal]);
+                  game.submarine.SubmarineHud.onPieceFound(allPieces[pieceOrdinal]);
+                  if (pieceCompleted && piecesBefore + 1 == 9) {
+                     GameScene.spawnSubmarine(new game.util.Point(pieceX, pieceY, pieceZ), false);
+                  }
+               }
+
+               break;
+            }
             case MSG_POT_STATE: {
                int baseIdx = d.readByte();
                int bx = d.readByte();
@@ -1961,6 +2275,123 @@ public final class NetSession {
    }
 
    // ------------------------------------------------------------------
+   // Client progress (stored by the host) and remote nametag
+   // ------------------------------------------------------------------
+
+   /**
+    * Client: queues the current progress (position + inventory) for the host,
+    * which stores it in save/players. A no-op on the host side.
+    */
+   public static void sendPlayerState() {
+      if (role != Role.CLIENT || status != Status.CONNECTED || !welcomed || GameScene.avatar == null) {
+         return;
+      }
+
+      byte[] progress = SaveManager.createClientState();
+      if (progress == null || progress.length == 0 || progress.length > MAX_FRAME_SIZE) {
+         return;
+      }
+
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(progress.length + 1);
+      DataOutputStream d = new DataOutputStream(bos);
+      try {
+         d.writeByte(MSG_PLAYER_STATE);
+         d.write(progress);
+         queueRaw(bos.toByteArray());
+      } catch (IOException e) {
+         // Cannot happen on a byte array stream.
+      }
+   }
+
+   /** Host: writes the progress received from the client to its player file. */
+   public static void flushClientState() {
+      if (role != Role.HOST || bufferedClientState == null) {
+         return;
+      }
+
+      SaveManager.savePlayerProgress(remoteNickname, bufferedClientState);
+   }
+
+   /** True while the remote player's nickname tag was projected on screen. */
+   public static boolean isNametagVisible() {
+      return nametagVisible;
+   }
+
+   public static float getNametagX() {
+      return nametagX;
+   }
+
+   public static float getNametagY() {
+      return nametagY;
+   }
+
+   /**
+    * Projects the remote player's head to screen space while the world matrices
+    * are still bound (called from renderRemote), so PlayerHud can draw their
+    * nickname above the sprite. Hidden while they drive a submarine or are far.
+    */
+   private static void updateNametag() {
+      if (remote.isNavigating() || GameScene.avatar == null) {
+         return;
+      }
+
+      Point renderPos = remote.getRenderPos();
+      Point ownPos = GameScene.avatar.getPos();
+      float dx = renderPos.x - ownPos.x;
+      float dy = renderPos.y - ownPos.y;
+      float dz = renderPos.z - ownPos.z;
+      if (dx * dx + dy * dy + dz * dz > 100.0F * 100.0F) {
+         return;
+      }
+
+      nametagVisible = projectToScreen(renderPos.x, renderPos.y + 26.0F, renderPos.z);
+   }
+
+   /** Manual clip-space transform of one world point (top-down screen coords). */
+   private static boolean projectToScreen(float wx, float wy, float wz) {
+      try {
+      projModel.rewind();
+      GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, projModel);
+      projProj.rewind();
+      GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, projProj);
+      projViewport.rewind();
+      GL11.glGetFloat(GL11.GL_VIEWPORT, projViewport);
+
+      float[] m = new float[16];
+      float[] p = new float[16];
+      projModel.get(0, m);
+      projProj.get(0, p);
+
+      float x = m[0] * wx + m[4] * wy + m[8] * wz + m[12];
+      float y = m[1] * wx + m[5] * wy + m[9] * wz + m[13];
+      float z = m[2] * wx + m[6] * wy + m[10] * wz + m[14];
+      float w = m[3] * wx + m[7] * wy + m[11] * wz + m[15];
+
+      float cx = p[0] * x + p[4] * y + p[8] * z + p[12] * w;
+      float cy = p[1] * x + p[5] * y + p[9] * z + p[13] * w;
+      float cz = p[2] * x + p[6] * y + p[10] * z + p[14] * w;
+      float cw = p[3] * x + p[7] * y + p[11] * z + p[15] * w;
+      if (cw <= 0.001F) {
+         return false;
+      }
+
+      float ndcX = cx / cw;
+      float ndcY = cy / cw;
+      float ndcZ = cz / cw;
+      if (ndcX < -1.0F || ndcX > 1.0F || ndcY < -1.0F || ndcY > 1.0F || ndcZ < -1.0F || ndcZ > 1.0F) {
+         return false;
+      }
+
+      nametagX = projViewport.get(0) + (ndcX + 1.0F) * 0.5F * projViewport.get(2);
+      nametagY = projViewport.get(1) + (1.0F - ndcY) * 0.5F * projViewport.get(3);
+      return true;
+      } catch (Throwable t) {
+         // A projection failure must never take the frame down: hide the tag.
+         return false;
+      }
+   }
+
+   // ------------------------------------------------------------------
    // Game thread helpers
    // ------------------------------------------------------------------
 
@@ -1993,8 +2424,9 @@ public final class NetSession {
             Main.gameState = GameState.LOADING_MENU;
          }
       } else if (role == Role.HOST) {
+         flushClientState();
          status = Status.LISTENING;
-         statusText = "Player left. Waiting for a player to join...";
+         statusText = remoteNickname + " left. Waiting for a player to join...";
       }
    }
 
@@ -2044,6 +2476,13 @@ public final class NetSession {
       clientAlive = false;
       eventClientJoined = false;
       eventLinkLost = false;
+      pendingPieces = null;
+      pendingPlayerState = null;
+      bufferedClientState = null;
+      handshakeDone = false;
+      playerStateTimer = 0.0F;
+      nametagVisible = false;
+      remoteNickname = "Player";
       incoming.clear();
       outgoing.clear();
       pendingWorldOps.clear();

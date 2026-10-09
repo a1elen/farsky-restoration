@@ -319,6 +319,20 @@ public class PlayerInventory extends Inventory {
       return this.bottomBar.isEmpty() && this.storageArray.isEmpty();
    }
 
+   /**
+    * The base copy only walks the main grid; the player's quick slots and
+    * equipment rows live in extra storage and must come along too.
+    */
+   @Override
+   public final void copyStateFrom(Inventory source) {
+      super.copyStateFrom(source);
+      if (source instanceof PlayerInventory) {
+         PlayerInventory saved = (PlayerInventory)source;
+         copyCells(saved.bottomBar, this.bottomBar);
+         copyCells(saved.equipment, this.equipment);
+      }
+   }
+
    public final void consumeCurrentItem() {
       this.getCurrentSlotStorage().consume();
    }

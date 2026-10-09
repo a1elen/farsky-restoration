@@ -1095,6 +1095,12 @@ public final class GameScene {
    }
 
    public static void save() {
+      if (NetSession.isClient()) {
+         // The client keeps no files: hand the progress to the host instead.
+         NetSession.sendPlayerState();
+         return;
+      }
+
       SaveManager.saveGame();
    }
 
@@ -1107,7 +1113,7 @@ public final class GameScene {
          gameMode = GameMode.SURVIVOR_DONE;
       }
 
-      SaveManager.saveGame();
+      save();
    }
 
    public static void onPlayerDeath() {

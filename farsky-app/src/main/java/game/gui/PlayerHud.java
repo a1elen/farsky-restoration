@@ -224,8 +224,17 @@ public final class PlayerHud {
       if (game.net.NetSession.isActive()) {
          GL11.glColor4f(1.0F, 0.95F, 0.6F, 0.9F);
          FontRenderer.setFontFamily(FontFamily.ECCENTRIC);
-         String netCoins = "Coins: " + (Main.achievements != null ? Main.achievements.getMoney() : 0) + " | Peer: " + game.net.NetSession.getRemoteMoney();
+         String netCoins = "Coins: " + (Main.achievements != null ? Main.achievements.getMoney() : 0) + " | " + game.net.NetSession.remoteNickname + ": " + game.net.NetSession.getRemoteMoney();
          FontRenderer.draw(Display.getWidth() - FontRenderer.getTextWidth(netCoins, 0.5F) - 24, 24, netCoins, 0.5F);
+         if (game.net.NetSession.isNametagVisible()) {
+            int tagX = (int)game.net.NetSession.getNametagX();
+            int tagY = (int)game.net.NetSession.getNametagY() - 16;
+            GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
+            FontRenderer.drawCentered(tagX + 1, tagY + 1, game.net.NetSession.remoteNickname, 0.5F);
+            GL11.glColor4f(1.0F, 1.0F, 1.0F, 0.95F);
+            FontRenderer.drawCentered(tagX, tagY, game.net.NetSession.remoteNickname, 0.5F);
+         }
+
          GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
       }
 

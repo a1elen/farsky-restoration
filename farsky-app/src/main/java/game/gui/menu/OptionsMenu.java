@@ -280,11 +280,17 @@ public final class OptionsMenu extends MenuScreen {
       values.add(getSettingValue("Ambient Sound"));
       keys.add("Music");
       values.add(getSettingValue("Music"));
+      keys.add("Nickname");
+      values.add(game.net.NetSession.nickname);
       SaveManager.saveOptions(keys, values);
       MenuController.refreshLayouts();
    }
 
    public static void applySetting(String setting, String value) {
+      if (setting.equals("Nickname")) {
+         game.net.NetSession.nickname = value;
+      }
+
       if (setting.equals("Forward")) {
          InputManager.rebindKey("Forward", Integer.parseInt(value));
       }
