@@ -21,7 +21,7 @@ Everything is saved on the host: worlds in `save/`, per-player progress in `save
 
 1. Download FarSky from [itch.io](https://farsky-interactive.itch.io/farsky) — you need to own the game (this project does not include any game assets).
 2. Install [Java 17 or newer](https://adoptium.net/).
-3. Download **farsky-restoration.zip** from the [Releases page](https://github.com/a1elen/farsky-restoration/releases/latest).
+3. Download **[farsky-restoration.zip](https://github.com/a1elen/farsky-restoration/releases/download/v1.0/farsky-restoration.zip)** (4.6 MB, also on the [Releases page](https://github.com/a1elen/farsky-restoration/releases)).
 4. Copy everything from the zip into the FarSky game folder (merge/overwrite).
 5. Double-click **Play FarSky.bat** — done. Use **Play FarSky (windowed).bat** if you prefer a window.
 
