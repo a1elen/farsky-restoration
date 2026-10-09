@@ -15,3 +15,6 @@ bin
 farsky-app/src/main/resources/obj/
 farsky-app/src/main/resources/sounds/
 farsky-app/src/main/resources/textures/
+
+# Redistributable package built by tools/make-dist.ps1
+dist

@@ -1,6 +1,7 @@
 package game.render;
 
 import game.Main;
+import game.util.Assets;
 import game.exceptions.TextureWidthException;
 import game.manager.TextureManager;
 import game.util.Coord;
@@ -105,7 +106,7 @@ public final class ModelLoader {
    }
 
    private static void loadObjFile(String path) {
-      InputStream stream = ResourceLoader.getResourceAsStream(path);
+      InputStream stream = Assets.openStream(path);
       BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
 
       try {

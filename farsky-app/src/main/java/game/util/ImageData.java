@@ -22,7 +22,12 @@ public final class ImageData {
       BufferedImage img = null;
 
       try {
-         img = ImageIO.read(this.getClass().getResource("/" + path));
+         java.net.URL url = Assets.getUrl(path);
+         if (url == null) {
+            throw new java.io.FileNotFoundException(path);
+         }
+
+         img = ImageIO.read(url);
       } catch (IOException e) {
          e.printStackTrace();
          if (Main.isVerbose) {

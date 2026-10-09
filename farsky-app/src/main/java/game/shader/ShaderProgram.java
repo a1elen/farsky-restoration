@@ -1,6 +1,7 @@
 package game.shader;
 
 import game.Main;
+import game.util.Assets;
 import java.io.DataInputStream;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
@@ -77,7 +78,7 @@ public final class ShaderProgram {
          String source = "";
 
          try {
-            DataInputStream stream = new DataInputStream(ResourceLoader.getResourceAsStream(path));
+            DataInputStream stream = new DataInputStream(Assets.openStream(path));
 
             while (stream.available() != 0) {
                source = source + (char)stream.read();
@@ -113,7 +114,7 @@ public final class ShaderProgram {
          String source = "";
 
          try {
-            DataInputStream stream = new DataInputStream(ResourceLoader.getResourceAsStream(path));
+            DataInputStream stream = new DataInputStream(Assets.openStream(path));
 
             while (stream.available() != 0) {
                source = source + (char)stream.read();

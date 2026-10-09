@@ -11,7 +11,12 @@ public class IconLoader {
       BufferedImage image = null;
 
       try {
-         image = ImageIO.read(IconLoader.class.getResource("/" + filename));
+         java.net.URL url = Assets.getUrl(filename);
+         if (url == null) {
+            throw new java.io.FileNotFoundException(filename);
+         }
+
+         image = ImageIO.read(url);
       } catch (IOException e) {
          e.printStackTrace();
       }

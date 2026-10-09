@@ -1,6 +1,7 @@
 package game.sounds;
 
 import game.Main;
+import game.util.Assets;
 import game.util.Point;
 import java.io.IOException;
 import java.nio.FloatBuffer;
@@ -205,7 +206,7 @@ public final class SoundManager {
 
    public static int loadSound(String filename) {
       try {
-         Audio audio = AudioLoader.getAudio("OGG", ResourceLoader.getResourceAsStream(filename));
+         Audio audio = AudioLoader.getAudio("OGG", Assets.openStream(filename));
          if (Main.isVerbose) {
             System.out.println("SoundManager id: " + audio.getBufferID() + ", for file: " + filename);
          }
