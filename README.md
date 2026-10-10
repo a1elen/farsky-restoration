@@ -19,7 +19,10 @@ NOT TESTED FULLY
 Everything is saved on the host: worlds in `save/`, per-player progress in `save/players/`. Joining players keep **no local save files**.
 
 * **Graphics options** — individually toggleable in *Options → Graphics*.
-  * **EXPERIMENTAL:** shadows, SSAO and caustics — they can cost performance and are still being tuned.
+  * Shadows with a sun elevation that follows the day/night cycle, so shadows lengthen and shift as the day passes.
+  * Screen space ambient occlusion, cleaned up with a depth aware blur so silhouettes stay sharp instead of turning grainy.
+  * New Screen setting: Fullscreen, Windowed or Borderless.
+  * Also added: FXAA / MSAA 4x, bloom, vignette, motion blur and color grading.
 * **Borderless windowed mode** — *Options → Graphics → Screen* offers *Fullscreen*, *Windowed* and *Borderless*.
 
 ## Download and run
