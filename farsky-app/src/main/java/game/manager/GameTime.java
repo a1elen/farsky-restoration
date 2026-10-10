@@ -79,6 +79,35 @@ public final class GameTime {
       return lightLevel;
    }
 
+   /**
+    * Sun elevation above the horizon in degrees for the current time of day.
+    * Low in the morning / evening, highest around noon. Used by the shadow map
+    * so shadows lengthen and shift through the day instead of staying fixed.
+    */
+   public static float getSunElevation() {
+      if (dayDuration <= 0.0F) {
+         return 80.0F;
+      }
+
+      float total = (dayDuration + nightDuration) * 60.0F;
+      if (total <= 0.0F) {
+         return 80.0F;
+      }
+
+      float t = dayTime % total;
+      if (t < 0.0F) {
+         t += total;
+      }
+
+      float dayMinutes = dayDuration * 60.0F;
+      if (t >= dayMinutes) {
+         return 8.0F;
+      }
+
+      float dayFrac = t / dayMinutes;
+      return 8.0F + 72.0F * (float)Math.sin(dayFrac * Math.PI);
+   }
+
    public static boolean isNight() {
       return lightLevel < 0.5F;
    }

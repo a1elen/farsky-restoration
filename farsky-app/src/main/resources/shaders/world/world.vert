@@ -13,6 +13,13 @@ uniform float height,factor,offset,amplitude;
 
 // Light params
 uniform vec3 topLightPos;
+
+// Shadow map (top down light, see game.shadow.ShadowMap)
+uniform bool shadowEnabled;
+uniform mat4 shadowMatrix;
+uniform mat4 viewFromWorld;
+varying vec4 shadowCoord;
+
 varying float d;
 varying vec3 N,topLightDir;
 
@@ -38,6 +45,11 @@ void main(void){
 	
 	pos = gl_ModelViewProjectionMatrix * vertex;
 	
+	// Shadow lookup coordinates: back to absolute world space (this undoes the
+	// world offset translation of the view matrix), then into light space.
+	if (shadowEnabled) shadowCoord = shadowMatrix * (viewFromWorld * (gl_ModelViewMatrix * vertex));
+	else shadowCoord = vec4(0.0, 0.0, 0.0, 1.0);
+
 
 	// Only do d computation
 	vec3 vVertex = vec3(gl_ModelViewMatrix * vertex);

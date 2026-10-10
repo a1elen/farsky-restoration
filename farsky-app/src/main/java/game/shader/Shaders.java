@@ -23,6 +23,13 @@ public final class Shaders {
    public static ShaderProgram guiEffectShader;
    public static ShaderProgram worldTestShader;
    public static ShaderProgram worldFloorTestShader;
+   public static ShaderProgram shadowShader;
+   public static ShaderProgram shadowTerrainShader;
+   public static ShaderProgram compositeShader;
+   public static ShaderProgram ssaoShader;
+   public static ShaderProgram aoBlurShader;
+   public static ShaderProgram fxaaShader;
+   public static ShaderProgram colorGradeShader;
    public static int activeProgramId = -1;
 
    public static void loadAll() {
@@ -38,12 +45,12 @@ public final class Shaders {
          System.out.println("== Loading world Shader ==");
       }
 
-      worldShader = new ShaderProgram("world/world.vert", "world/world.frag", new String[]{"colorTex"});
+      worldShader = new ShaderProgram("world/world.vert", "world/world.frag", new String[]{"colorTex", "shadowTex"});
       if (Main.isVerbose) {
          System.out.println("== Loading worldFloor Shader ==");
       }
 
-      worldFloorShader = new ShaderProgram("worldFloor/worldFloor.vert", "worldFloor/worldFloor.frag", new String[]{"colorTex", "normalTex", "causticTex"});
+      worldFloorShader = new ShaderProgram("worldFloor/worldFloor.vert", "worldFloor/worldFloor.frag", new String[]{"colorTex", "normalTex", "causticTex", "shadowTex"});
       if (Main.isVerbose) {
          System.out.println("== Loading map Shader ==");
       }
@@ -104,6 +111,25 @@ public final class Shaders {
       }
 
       guiEffectShader = new ShaderProgram("guiEffect/guiEffect.vert", "guiEffect/guiEffect.frag", new String[]{"texture"});
+      if (Main.isVerbose) {
+         System.out.println("== Loading shadow Shader ==");
+      }
+
+      shadowShader = new ShaderProgram("shadow/shadow.vert", "shadow/shadow.frag", new String[]{"colorTex"});
+      if (Main.isVerbose) {
+         System.out.println("== Loading shadowTerrain Shader ==");
+      }
+
+      shadowTerrainShader = new ShaderProgram("shadow/shadow.vert", "shadow/shadowTerrain.frag", null);
+      if (Main.isVerbose) {
+         System.out.println("== Loading composite Shader ==");
+      }
+
+      compositeShader = new ShaderProgram("bloom/standard.vert", "post/composite.frag", new String[]{"sceneTex", "aoTex", "depthTex"});
+      ssaoShader = new ShaderProgram("bloom/standard.vert", "post/ssao.frag", new String[]{"depthTex"});
+      aoBlurShader = new ShaderProgram("bloom/standard.vert", "post/aoBlur.frag", new String[]{"aoTex", "depthTex"});
+      fxaaShader = new ShaderProgram("bloom/standard.vert", "post/fxaa.frag", new String[]{"texture"});
+      colorGradeShader = new ShaderProgram("bloom/standard.vert", "post/colorGrade.frag", new String[]{"texture"});
       if (!Main.isRelease) {
          if (Main.isVerbose) {
             System.out.println("== Loading worldTest Shader ==");
@@ -157,6 +183,20 @@ public final class Shaders {
 
    public static void setUniform(String name, double value) {
       GL20.glUniform1f(GL20.glGetUniformLocation(activeProgramId, name), (float)value);
+      if (checkGLError() && Main.isVerbose) {
+         System.out.println("var: " + name + ", current program: " + activeProgramId);
+      }
+   }
+
+   public static void setUniform(String name, float x, float y) {
+      GL20.glUniform2f(GL20.glGetUniformLocation(activeProgramId, name), x, y);
+      if (checkGLError() && Main.isVerbose) {
+         System.out.println("var: " + name + ", current program: " + activeProgramId);
+      }
+   }
+
+   public static void setUniform(String name, float[] matrix) {
+      GL20.glUniformMatrix4(GL20.glGetUniformLocation(activeProgramId, name), false, game.render.Mat4.toBuffer(matrix));
       if (checkGLError() && Main.isVerbose) {
          System.out.println("var: " + name + ", current program: " + activeProgramId);
       }

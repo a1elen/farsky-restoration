@@ -28,6 +28,7 @@ import game.player.droid.Droid;
 import game.saving.SaveManager;
 import game.seafloorBase.SeafloorBase;
 import game.shader.Shaders;
+import game.shadow.ShadowMap;
 import game.sounds.SoundManager;
 import game.submarine.Submarine;
 import game.util.Coord;
@@ -400,6 +401,7 @@ public final class GameScene {
          Shaders.worldFloorTestShader.bind();
       } else {
          Shaders.worldFloorShader.bind();
+         ShadowMap.applyUniforms();
       }
 
       RenderManager.setLight();
@@ -433,6 +435,7 @@ public final class GameScene {
          Shaders.worldTestShader.bind();
       } else {
          Shaders.worldShader.bind();
+         ShadowMap.applyUniforms();
       }
 
       RenderManager.setLight();
@@ -536,6 +539,7 @@ public final class GameScene {
             Shaders.worldTestShader.bind();
          } else {
             Shaders.worldShader.bind();
+            ShadowMap.applyUniforms();
          }
 
          RenderManager.setLight();
@@ -655,6 +659,7 @@ public final class GameScene {
             Shaders.worldTestShader.bind();
          } else {
             Shaders.worldShader.bind();
+            ShadowMap.applyUniforms();
          }
 
          RenderManager.setLight();
@@ -770,6 +775,7 @@ public final class GameScene {
             Shaders.worldTestShader.bind();
          } else {
             Shaders.worldShader.bind();
+            ShadowMap.applyUniforms();
          }
 
          RenderManager.setLight();

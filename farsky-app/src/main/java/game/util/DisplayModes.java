@@ -7,9 +7,13 @@ import org.lwjgl.opengl.DisplayMode;
 import org.lwjgl.opengl.GL11;
 
 public final class DisplayModes {
+   public static final String SCREEN_FULLSCREEN = "Fullscreen";
+   public static final String SCREEN_WINDOWED = "Windowed";
+   public static final String SCREEN_BORDERLESS = "Borderless";
    private static DisplayMode fullscreenMode;
    private static ArrayList<DisplayMode> availableModes = new ArrayList<>();
    private static DisplayMode currentMode = null;
+   private static String screenMode = SCREEN_WINDOWED;
 
    public static void init() {
       int maxPixels = 0;
@@ -73,6 +77,7 @@ public final class DisplayModes {
          Display.setFullscreen(true);
          Display.setDisplayMode(fullscreenMode);
          currentMode = fullscreenMode;
+         screenMode = SCREEN_FULLSCREEN;
       } catch (LWJGLException e) {
          e.printStackTrace();
       }
@@ -83,6 +88,7 @@ public final class DisplayModes {
          Display.setFullscreen(false);
          Display.setDisplayMode(availableModes.get(availableModes.size() / 4));
          currentMode = availableModes.get(availableModes.size() / 4);
+         screenMode = SCREEN_WINDOWED;
       } catch (LWJGLException e) {
          e.printStackTrace();
       }
@@ -105,11 +111,75 @@ public final class DisplayModes {
       if (Display.isFullscreen() != enabled) {
          try {
             Display.setFullscreen(enabled);
+            screenMode = enabled ? SCREEN_FULLSCREEN : SCREEN_WINDOWED;
             return;
          } catch (LWJGLException e) {
             e.printStackTrace();
          }
       }
+   }
+
+   public static String getScreenMode() {
+      return screenMode;
+   }
+
+   /** Switches between exclusive fullscreen, a normal window, and a borderless window. */
+   public static void setScreenMode(String mode) {
+      if (mode == null) {
+         return;
+      }
+
+      try {
+         if (mode.equals(SCREEN_FULLSCREEN)) {
+            setUndecorated(false);
+            if (fullscreenMode != null) {
+               Display.setDisplayModeAndFullscreen(fullscreenMode);
+               currentMode = fullscreenMode;
+            } else if (!Display.isFullscreen()) {
+               Display.setFullscreen(true);
+            }
+
+            screenMode = SCREEN_FULLSCREEN;
+         } else if (mode.equals(SCREEN_BORDERLESS)) {
+            setUndecorated(true);
+            if (Display.isFullscreen()) {
+               Display.setFullscreen(false);
+            }
+
+            // Recreate the window so the undecorated flag is applied.
+            Display.setFullscreen(true);
+            Display.setFullscreen(false);
+            Display.setDisplayMode(Display.getDesktopDisplayMode());
+            Display.setLocation(0, 0);
+            screenMode = SCREEN_BORDERLESS;
+         } else {
+            boolean wasBorderless = screenMode.equals(SCREEN_BORDERLESS);
+            setUndecorated(false);
+            if (Display.isFullscreen()) {
+               Display.setFullscreen(false);
+            }
+
+            if (wasBorderless) {
+               // Recreate the window so the decoration is restored.
+               Display.setFullscreen(true);
+               Display.setFullscreen(false);
+            }
+
+            if (currentMode != null) {
+               Display.setDisplayMode(currentMode);
+            }
+
+            screenMode = SCREEN_WINDOWED;
+         }
+
+         GL11.glViewport(0, 0, Display.getWidth(), Display.getHeight());
+      } catch (LWJGLException e) {
+         e.printStackTrace();
+      }
+   }
+
+   private static void setUndecorated(boolean undecorated) {
+      System.setProperty("org.lwjgl.opengl.Window.undecorated", Boolean.toString(undecorated));
    }
 
    public static void setModeByResolution(String resolution) {

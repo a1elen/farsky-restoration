@@ -10,12 +10,16 @@ import game.input.RawInput;
 import game.manager.GameScene;
 import game.manager.GameState;
 import game.manager.TextureManager;
+import game.shader.PostFX;
+import game.shadow.ShadowMap;
 import game.saving.SaveManager;
 import game.sounds.SoundManager;
 import game.util.DisplayModes;
+import game.util.FontRenderer;
 
 import java.util.ArrayList;
 import org.lwjgl.opengl.Display;
+import org.lwjgl.opengl.GL11;
 
 public final class OptionsMenu extends MenuScreen {
    private static boolean vsyncEnabled = false;
@@ -55,10 +59,11 @@ public final class OptionsMenu extends MenuScreen {
       this.findButton("Mouse Sensitivity").addOption("4.6");
       this.findButton("Mouse Sensitivity").addOption("5.0");
       this.findButton("Mouse Sensitivity").selectOption(getSettingValue("Mouse Sensitivity"));
-      this.buttons.add(new Button(ButtonType.TOGGLE, 0, "Full Screen", this.findButton("Graphics")));
-      this.findButton("Full Screen").addOption("Off");
-      this.findButton("Full Screen").addOption("On");
-      this.findButton("Full Screen").selectOption(getSettingValue("Full Screen"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 0, "Screen", this.findButton("Graphics")));
+      this.findButton("Screen").addOption("Fullscreen");
+      this.findButton("Screen").addOption("Windowed");
+      this.findButton("Screen").addOption("Borderless");
+      this.findButton("Screen").selectOption(getSettingValue("Screen"));
       this.buttons.add(new Button(ButtonType.TOGGLE, 1, "Resolution", this.findButton("Graphics")));
 
       for (int i = 0; i < DisplayModes.getAvailableModes().size(); i++) {
@@ -73,6 +78,10 @@ public final class OptionsMenu extends MenuScreen {
       this.findButton("FPS").addOption("60");
       this.findButton("FPS").addOption("70");
       this.findButton("FPS").addOption("80");
+      this.findButton("FPS").addOption("90");
+      this.findButton("FPS").addOption("120");
+      this.findButton("FPS").addOption("240");
+      this.findButton("FPS").addOption("Unlimited");
       this.findButton("FPS").selectOption(getSettingValue("FPS"));
       this.buttons.add(new Button(ButtonType.TOGGLE, 3, "Texture Quality", this.findButton("Graphics")));
       this.findButton("Texture Quality").addOption("Low");
@@ -83,6 +92,9 @@ public final class OptionsMenu extends MenuScreen {
       this.findButton("Render Distance").addOption("Tiny");
       this.findButton("Render Distance").addOption("Short");
       this.findButton("Render Distance").addOption("Normal");
+      this.findButton("Render Distance").addOption("High");
+      this.findButton("Render Distance").addOption("Very High");
+      this.findButton("Render Distance").addOption("Ultra");
       this.findButton("Render Distance").selectOption(getSettingValue("Render Distance"));
       this.buttons.add(new Button(ButtonType.TOGGLE, 5, "Particle Quantity", this.findButton("Graphics")));
       this.findButton("Particle Quantity").addOption("None");
@@ -98,6 +110,48 @@ public final class OptionsMenu extends MenuScreen {
       this.findButton("Vsync").addOption("On");
       this.findButton("Vsync").addOption("Off");
       this.findButton("Vsync").selectOption(getSettingValue("Vsync"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 8, "Antialiasing", this.findButton("Graphics")));
+      this.findButton("Antialiasing").addOption("Off");
+      this.findButton("Antialiasing").addOption("FXAA");
+      this.findButton("Antialiasing").addOption("MSAA 4x");
+      this.findButton("Antialiasing").addOption("FXAA + MSAA");
+      this.findButton("Antialiasing").selectOption(getSettingValue("Antialiasing"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 9, "Shadow Quality", this.findButton("Graphics")));
+      this.findButton("Shadow Quality").addOption("Off");
+      this.findButton("Shadow Quality").addOption("Low");
+      this.findButton("Shadow Quality").addOption("High");
+      this.findButton("Shadow Quality").selectOption(getSettingValue("Shadow Quality"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 10, "Shadow Distance", this.findButton("Graphics")));
+      this.findButton("Shadow Distance").addOption("Tiny");
+      this.findButton("Shadow Distance").addOption("Short");
+      this.findButton("Shadow Distance").addOption("Normal");
+      this.findButton("Shadow Distance").addOption("High");
+      this.findButton("Shadow Distance").addOption("Very High");
+      this.findButton("Shadow Distance").addOption("Ultra");
+      this.findButton("Shadow Distance").selectOption(getSettingValue("Shadow Distance"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 11, "SSAO", this.findButton("Graphics")));
+      this.findButton("SSAO").addOption("Off");
+      this.findButton("SSAO").addOption("Low");
+      this.findButton("SSAO").addOption("High");
+      this.findButton("SSAO").selectOption(getSettingValue("SSAO"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 12, "Motion Blur", this.findButton("Graphics")));
+      this.findButton("Motion Blur").addOption("Off");
+      this.findButton("Motion Blur").addOption("Low");
+      this.findButton("Motion Blur").addOption("High");
+      this.findButton("Motion Blur").selectOption(getSettingValue("Motion Blur"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 13, "Color Grading", this.findButton("Graphics")));
+      this.findButton("Color Grading").addOption("Off");
+      this.findButton("Color Grading").addOption("Subtle");
+      this.findButton("Color Grading").addOption("Vivid");
+      this.findButton("Color Grading").selectOption(getSettingValue("Color Grading"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 14, "Bloom", this.findButton("Graphics")));
+      this.findButton("Bloom").addOption("On");
+      this.findButton("Bloom").addOption("Off");
+      this.findButton("Bloom").selectOption(getSettingValue("Bloom"));
+      this.buttons.add(new Button(ButtonType.TOGGLE, 15, "Vignette", this.findButton("Graphics")));
+      this.findButton("Vignette").addOption("On");
+      this.findButton("Vignette").addOption("Off");
+      this.findButton("Vignette").selectOption(getSettingValue("Vignette"));
       this.buttons.add(new Button(ButtonType.TOGGLE, 0, "Sound Effect", this.findButton("Audio")));
       this.findButton("Sound Effect").addOption("0%");
       this.findButton("Sound Effect").addOption("10%");
@@ -156,6 +210,27 @@ public final class OptionsMenu extends MenuScreen {
       for (int i = 0; i < this.buttons.size(); i++) {
          this.buttons.get(i).render();
       }
+
+      if (this.isExperimentalSetting()) {
+         Button graphics = this.findButton("Graphics");
+         GL11.glColor4f(1.0F, 0.35F, 0.3F, 1.0F);
+         FontRenderer.drawCentered(
+            graphics.getX() + graphics.getTextWidth() / 2,
+            graphics.getY() - 18,
+            "EXPERIMENTAL! Can change the experience of the game or drop performance!",
+            0.5F
+         );
+         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+      }
+   }
+
+   /** Render distance above Normal, or shadow distance above High, is experimental. */
+   private boolean isExperimentalSetting() {
+      String render = this.findButton("Render Distance").getSelectedOption();
+      String shadow = this.findButton("Shadow Distance").getSelectedOption();
+      boolean renderHigh = render.equals("High") || render.equals("Very High") || render.equals("Ultra");
+      boolean shadowHigh = shadow.equals("Very High") || shadow.equals("Ultra");
+      return renderHigh || shadowHigh;
    }
 
    @Override
@@ -173,13 +248,21 @@ public final class OptionsMenu extends MenuScreen {
          this.findButton("Invert Mouse").setSelected(false);
          this.findButton("Mouse Sensitivity").setSelected(false);
          this.findButton("Resolution").setSelected(false);
-         this.findButton("Full Screen").setSelected(false);
+         this.findButton("Screen").setSelected(false);
          this.findButton("FPS").setSelected(false);
          this.findButton("Texture Quality").setSelected(false);
          this.findButton("Render Distance").setSelected(false);
          this.findButton("Particle Quantity").setSelected(false);
          this.findButton("Caustics").setSelected(false);
          this.findButton("Vsync").setSelected(false);
+         this.findButton("Antialiasing").setSelected(false);
+         this.findButton("Shadow Quality").setSelected(false);
+         this.findButton("Shadow Distance").setSelected(false);
+         this.findButton("SSAO").setSelected(false);
+         this.findButton("Motion Blur").setSelected(false);
+         this.findButton("Color Grading").setSelected(false);
+         this.findButton("Bloom").setSelected(false);
+         this.findButton("Vignette").setSelected(false);
          this.findButton("Sound Effect").setSelected(false);
          this.findButton("Ambient Sound").setSelected(false);
          this.findButton("Music").setSelected(false);
@@ -193,13 +276,21 @@ public final class OptionsMenu extends MenuScreen {
          applySetting("Invert Mouse", this.findButton("Invert Mouse").getSelectedOption());
          applySetting("Mouse Sensitivity", this.findButton("Mouse Sensitivity").getSelectedOption());
          applySetting("Resolution", this.findButton("Resolution").getSelectedOption());
-         applySetting("Full Screen", this.findButton("Full Screen").getSelectedOption());
+         applySetting("Screen", this.findButton("Screen").getSelectedOption());
          applySetting("FPS", this.findButton("FPS").getSelectedOption());
          applySetting("Texture Quality", this.findButton("Texture Quality").getSelectedOption());
          applySetting("Render Distance", this.findButton("Render Distance").getSelectedOption());
          applySetting("Particle Quantity", this.findButton("Particle Quantity").getSelectedOption());
          applySetting("Caustics", this.findButton("Caustics").getSelectedOption());
          applySetting("Vsync", this.findButton("Vsync").getSelectedOption());
+         applySetting("Antialiasing", this.findButton("Antialiasing").getSelectedOption());
+         applySetting("Shadow Quality", this.findButton("Shadow Quality").getSelectedOption());
+         applySetting("Shadow Distance", this.findButton("Shadow Distance").getSelectedOption());
+         applySetting("SSAO", this.findButton("SSAO").getSelectedOption());
+         applySetting("Motion Blur", this.findButton("Motion Blur").getSelectedOption());
+         applySetting("Color Grading", this.findButton("Color Grading").getSelectedOption());
+         applySetting("Bloom", this.findButton("Bloom").getSelectedOption());
+         applySetting("Vignette", this.findButton("Vignette").getSelectedOption());
          applySetting("Sound Effect", this.findButton("Sound Effect").getSelectedOption());
          applySetting("Ambient Sound", this.findButton("Ambient Sound").getSelectedOption());
          applySetting("Music", this.findButton("Music").getSelectedOption());
@@ -207,14 +298,22 @@ public final class OptionsMenu extends MenuScreen {
          MenuController.currentMenuState = MenuController.prevMenuState;
       } else if (button.hasLabel("Default Settings")) {
          InputManager.init();
-         DisplayModes.switchToFullscreen();
+         applySetting("Screen", "Fullscreen");
          applySetting("Invert Mouse", "No");
          applySetting("Mouse Sensitivity", "1.0");
          applySetting("FPS", "50");
          applySetting("Render Distance", "Normal");
          applySetting("Particle Quantity", "Maximum");
-         applySetting("Caustics", "On");
+         applySetting("Caustics", "Off");
          applySetting("Vsync", "Off");
+         applySetting("Antialiasing", "Off");
+         applySetting("Shadow Quality", "Off");
+         applySetting("Shadow Distance", "Normal");
+         applySetting("SSAO", "Off");
+         applySetting("Motion Blur", "Off");
+         applySetting("Color Grading", "Off");
+         applySetting("Bloom", "On");
+         applySetting("Vignette", "Off");
          applySetting("Sound Effect", "100%");
          applySetting("Ambient Sound", "100%");
          applySetting("Music", "100%");
@@ -228,13 +327,21 @@ public final class OptionsMenu extends MenuScreen {
       this.findButton("Invert Mouse").selectOption(getSettingValue("Invert Mouse"));
       this.findButton("Mouse Sensitivity").selectOption(getSettingValue("Mouse Sensitivity"));
       this.findButton("Resolution").selectOption(getSettingValue("Resolution"));
-      this.findButton("Full Screen").selectOption(getSettingValue("Full Screen"));
+      this.findButton("Screen").selectOption(getSettingValue("Screen"));
       this.findButton("FPS").selectOption(getSettingValue("FPS"));
       this.findButton("Texture Quality").selectOption(getSettingValue("Texture Quality"));
       this.findButton("Render Distance").selectOption(getSettingValue("Render Distance"));
       this.findButton("Particle Quantity").selectOption(getSettingValue("Particle Quantity"));
       this.findButton("Caustics").selectOption(getSettingValue("Caustics"));
       this.findButton("Vsync").selectOption(getSettingValue("Vsync"));
+      this.findButton("Antialiasing").selectOption(getSettingValue("Antialiasing"));
+      this.findButton("Shadow Quality").selectOption(getSettingValue("Shadow Quality"));
+      this.findButton("Shadow Distance").selectOption(getSettingValue("Shadow Distance"));
+      this.findButton("SSAO").selectOption(getSettingValue("SSAO"));
+      this.findButton("Motion Blur").selectOption(getSettingValue("Motion Blur"));
+      this.findButton("Color Grading").selectOption(getSettingValue("Color Grading"));
+      this.findButton("Bloom").selectOption(getSettingValue("Bloom"));
+      this.findButton("Vignette").selectOption(getSettingValue("Vignette"));
       this.findButton("Sound Effect").selectOption(getSettingValue("Sound Effect"));
       this.findButton("Ambient Sound").selectOption(getSettingValue("Ambient Sound"));
       this.findButton("Music").selectOption(getSettingValue("Music"));
@@ -262,6 +369,8 @@ public final class OptionsMenu extends MenuScreen {
       values.add(getSettingValue("Invert Mouse"));
       keys.add("Mouse Sensitivity");
       values.add(getSettingValue("Mouse Sensitivity"));
+      keys.add("Screen");
+      values.add(getSettingValue("Screen"));
       keys.add("FPS");
       values.add(getSettingValue("FPS"));
       keys.add("Texture Quality");
@@ -274,6 +383,22 @@ public final class OptionsMenu extends MenuScreen {
       values.add(getSettingValue("Caustics"));
       keys.add("Vsync");
       values.add(getSettingValue("Vsync"));
+      keys.add("Antialiasing");
+      values.add(getSettingValue("Antialiasing"));
+      keys.add("Shadow Quality");
+      values.add(getSettingValue("Shadow Quality"));
+      keys.add("Shadow Distance");
+      values.add(getSettingValue("Shadow Distance"));
+      keys.add("SSAO");
+      values.add(getSettingValue("SSAO"));
+      keys.add("Motion Blur");
+      values.add(getSettingValue("Motion Blur"));
+      keys.add("Color Grading");
+      values.add(getSettingValue("Color Grading"));
+      keys.add("Bloom");
+      values.add(getSettingValue("Bloom"));
+      keys.add("Vignette");
+      values.add(getSettingValue("Vignette"));
       keys.add("Sound Effect");
       values.add(getSettingValue("Sound Effect"));
       keys.add("Ambient Sound");
@@ -395,12 +520,13 @@ public final class OptionsMenu extends MenuScreen {
          DisplayModes.setModeByResolution(value);
       }
 
+      if (setting.equals("Screen")) {
+         DisplayModes.setScreenMode(value);
+      }
+
+      // Legacy key from before the option was renamed.
       if (setting.equals("Full Screen")) {
-         if (value.equals("On")) {
-            DisplayModes.setFullscreenEnabled(true);
-         } else if (value.equals("Off")) {
-            DisplayModes.setFullscreenEnabled(false);
-         }
+         DisplayModes.setScreenMode(value.equals("On") ? DisplayModes.SCREEN_FULLSCREEN : DisplayModes.SCREEN_WINDOWED);
       }
 
       if (setting.equals("FPS")) {
@@ -416,6 +542,14 @@ public final class OptionsMenu extends MenuScreen {
             Main.targetFps = 70;
          } else if (value.equals("80")) {
             Main.targetFps = 80;
+         } else if (value.equals("90")) {
+            Main.targetFps = 90;
+         } else if (value.equals("120")) {
+            Main.targetFps = 120;
+         } else if (value.equals("240")) {
+            Main.targetFps = 240;
+         } else if (value.equals("Unlimited")) {
+            Main.targetFps = 0;
          }
       }
 
@@ -443,6 +577,12 @@ public final class OptionsMenu extends MenuScreen {
             DepthAtmosphere.visibilityFactor = 0.75F;
          } else if (value.equals("Normal")) {
             DepthAtmosphere.visibilityFactor = 1.0F;
+         } else if (value.equals("High")) {
+            DepthAtmosphere.visibilityFactor = 1.25F;
+         } else if (value.equals("Very High")) {
+            DepthAtmosphere.visibilityFactor = 1.5F;
+         } else if (value.equals("Ultra")) {
+            DepthAtmosphere.visibilityFactor = 2.0F;
          }
       }
 
@@ -454,6 +594,86 @@ public final class OptionsMenu extends MenuScreen {
             Display.setVSyncEnabled(false);
             vsyncEnabled = false;
          }
+      }
+
+      if (setting.equals("Antialiasing")) {
+         if (value.equals("Off")) {
+            PostFX.aaMode = PostFX.AA_OFF;
+         } else if (value.equals("FXAA")) {
+            PostFX.aaMode = PostFX.AA_FXAA;
+         } else if (value.equals("MSAA 4x")) {
+            PostFX.aaMode = PostFX.AA_MSAA;
+         } else if (value.equals("FXAA + MSAA")) {
+            PostFX.aaMode = PostFX.AA_BOTH;
+         }
+      }
+
+      if (setting.equals("Shadow Quality")) {
+         if (value.equals("Off")) {
+            ShadowMap.shadowsEnabled = false;
+         } else if (value.equals("High")) {
+            ShadowMap.shadowsEnabled = true;
+            ShadowMap.shadowQuality = 1;
+            ShadowMap.shadowResolution = 2048;
+         } else if (value.equals("Low")) {
+            ShadowMap.shadowsEnabled = true;
+            ShadowMap.shadowQuality = 2;
+            ShadowMap.shadowResolution = 1024;
+         }
+      }
+
+      if (setting.equals("Shadow Distance")) {
+         if (value.equals("Tiny")) {
+            ShadowMap.shadowDistanceFactor = 0.5F;
+         } else if (value.equals("Short")) {
+            ShadowMap.shadowDistanceFactor = 0.75F;
+         } else if (value.equals("Normal")) {
+            ShadowMap.shadowDistanceFactor = 1.0F;
+         } else if (value.equals("High")) {
+            ShadowMap.shadowDistanceFactor = 1.25F;
+         } else if (value.equals("Very High")) {
+            ShadowMap.shadowDistanceFactor = 1.5F;
+         } else if (value.equals("Ultra")) {
+            ShadowMap.shadowDistanceFactor = 2.0F;
+         }
+      }
+
+      if (setting.equals("SSAO")) {
+         if (value.equals("Off")) {
+            PostFX.ssaoLevel = 0;
+         } else if (value.equals("Low")) {
+            PostFX.ssaoLevel = 1;
+         } else if (value.equals("High")) {
+            PostFX.ssaoLevel = 2;
+         }
+      }
+
+      if (setting.equals("Motion Blur")) {
+         if (value.equals("Off")) {
+            PostFX.motionBlurLevel = 0;
+         } else if (value.equals("Low")) {
+            PostFX.motionBlurLevel = 1;
+         } else if (value.equals("High")) {
+            PostFX.motionBlurLevel = 2;
+         }
+      }
+
+      if (setting.equals("Color Grading")) {
+         if (value.equals("Off")) {
+            PostFX.colorGradeLevel = 0;
+         } else if (value.equals("Subtle")) {
+            PostFX.colorGradeLevel = 1;
+         } else if (value.equals("Vivid")) {
+            PostFX.colorGradeLevel = 2;
+         }
+      }
+
+      if (setting.equals("Bloom")) {
+         PostFX.bloomLevel = value.equals("Off") ? 0 : 2;
+      }
+
+      if (setting.equals("Vignette")) {
+         PostFX.vignetteEnabled = value.equals("On");
       }
 
       if (setting.equals("Caustics")) {
@@ -597,10 +817,10 @@ public final class OptionsMenu extends MenuScreen {
             return (int)RawInput.sensitivity + "." + ((int)(RawInput.sensitivity * 10.0F) - (int)RawInput.sensitivity * 10);
          } else if (setting.equals("Resolution")) {
             return DisplayModes.getCurrentMode().getWidth() + "x" + DisplayModes.getCurrentMode().getHeight();
-         } else if (setting.equals("Full Screen")) {
-            return Display.isFullscreen() ? "On" : "Off";
+         } else if (setting.equals("Screen")) {
+            return DisplayModes.getScreenMode();
          } else if (setting.equals("FPS")) {
-            return "" + Main.targetFps;
+            return Main.targetFps > 0 ? "" + Main.targetFps : "Unlimited";
          } else {
             if (setting.equals("Texture Quality")) {
                if (TextureManager.getResolution() == 1) {
@@ -627,6 +847,18 @@ public final class OptionsMenu extends MenuScreen {
 
                if (DepthAtmosphere.visibilityFactor == 1.0F) {
                   return "Normal";
+               }
+
+               if (DepthAtmosphere.visibilityFactor == 1.25F) {
+                  return "High";
+               }
+
+               if (DepthAtmosphere.visibilityFactor == 1.5F) {
+                  return "Very High";
+               }
+
+               if (DepthAtmosphere.visibilityFactor == 2.0F) {
+                  return "Ultra";
                }
             }
 
@@ -666,6 +898,108 @@ public final class OptionsMenu extends MenuScreen {
                if (!vsyncEnabled) {
                   return "Off";
                }
+            }
+
+            if (setting.equals("Antialiasing")) {
+               if (PostFX.aaMode == PostFX.AA_OFF) {
+                  return "Off";
+               }
+
+               if (PostFX.aaMode == PostFX.AA_FXAA) {
+                  return "FXAA";
+               }
+
+               if (PostFX.aaMode == PostFX.AA_MSAA) {
+                  return "MSAA 4x";
+               }
+
+               if (PostFX.aaMode == PostFX.AA_BOTH) {
+                  return "FXAA + MSAA";
+               }
+            }
+
+            if (setting.equals("Shadow Quality")) {
+               if (!ShadowMap.shadowsEnabled) {
+                  return "Off";
+               }
+
+               return ShadowMap.shadowQuality == 1 ? "High" : "Low";
+            }
+
+            if (setting.equals("Shadow Distance")) {
+               if (ShadowMap.shadowDistanceFactor == 0.5F) {
+                  return "Tiny";
+               }
+
+               if (ShadowMap.shadowDistanceFactor == 0.75F) {
+                  return "Short";
+               }
+
+               if (ShadowMap.shadowDistanceFactor == 1.0F) {
+                  return "Normal";
+               }
+
+               if (ShadowMap.shadowDistanceFactor == 1.25F) {
+                  return "High";
+               }
+
+               if (ShadowMap.shadowDistanceFactor == 1.5F) {
+                  return "Very High";
+               }
+
+               if (ShadowMap.shadowDistanceFactor == 2.0F) {
+                  return "Ultra";
+               }
+            }
+
+            if (setting.equals("SSAO")) {
+               if (PostFX.ssaoLevel == 0) {
+                  return "Off";
+               }
+
+               if (PostFX.ssaoLevel == 1) {
+                  return "Low";
+               }
+
+               if (PostFX.ssaoLevel == 2) {
+                  return "High";
+               }
+            }
+
+            if (setting.equals("Motion Blur")) {
+               if (PostFX.motionBlurLevel == 0) {
+                  return "Off";
+               }
+
+               if (PostFX.motionBlurLevel == 1) {
+                  return "Low";
+               }
+
+               if (PostFX.motionBlurLevel == 2) {
+                  return "High";
+               }
+            }
+
+            if (setting.equals("Color Grading")) {
+               if (PostFX.colorGradeLevel == 0) {
+                  return "Off";
+               }
+
+               if (PostFX.colorGradeLevel == 1) {
+                  return "Subtle";
+               }
+
+               if (PostFX.colorGradeLevel == 2) {
+                  return "Vivid";
+               }
+            }
+
+            if (setting.equals("Bloom")) {
+               return PostFX.bloomLevel == 0 ? "Off" : "On";
+            }
+
+            if (setting.equals("Vignette")) {
+               return PostFX.vignetteEnabled ? "On" : "Off";
             }
 
             if (setting.equals("Sound Effect")) {

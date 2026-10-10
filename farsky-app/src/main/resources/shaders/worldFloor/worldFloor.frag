@@ -24,6 +24,19 @@ uniform float visibleLimit;
 uniform vec3 glowColor;
 varying vec3 lightDir, eyeVec;
 varying float d;
+// World space geometric normal of the chunk, used for the shadow slope bias
+varying vec3 worldNormal;
+
+// Shadow map (top down light, see game.shadow.ShadowMap)
+uniform bool shadowEnabled;
+uniform bool shadowSoft;
+uniform float shadowTexel;
+uniform float shadowWorldTexel;
+uniform float shadowDarkness;
+uniform mat4 shadowMatrix;
+uniform sampler2D shadowTex;
+varying vec4 shadowCoord;
+varying vec3 vWorldPos;
 
 // Alpha color
 uniform vec3 alphaColor;
@@ -32,6 +45,45 @@ uniform vec3 alphaAbyssColor;
 
 vec3 seaGradientColor(vec3 color){
 	return mix(glowColor, color.rgb, clamp((visibleLimit-d)/400.0,0.1, 1.0));
+}
+
+// 1.0 = fully lit, 0.0 = fully shadowed (PCF when the shadow map is soft)
+float getShadow(){
+	if (!shadowEnabled) return 1.0;
+	if (shadowCoord.w == 0.0) return 1.0;
+	// Normal offset: lift the lookup point along the surface normal so faces
+	// that run nearly parallel to the light rays (steep terrain) sample from in
+	// front of themselves instead of shadow acneing into stripes.
+	float normalLen = max(length(worldNormal), 0.0001);
+	vec3 nrm = worldNormal / normalLen;
+	vec3 offsetPos = vWorldPos + nrm * (shadowWorldTexel * 1.5);
+	vec4 shadowClip = shadowMatrix * vec4(offsetPos, 1.0);
+	if (shadowClip.w == 0.0) return 1.0;
+	vec3 proj = shadowClip.xyz / shadowClip.w;
+	if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0) return 1.0;
+	if (proj.z > 1.0 || proj.z < -1.0) return 1.0;
+
+	vec2 uv = proj.xy * 0.5 + 0.5;
+	float depth = proj.z * 0.5 + 0.5;
+	// The normal offset above does most of the work; a small residual slope term
+	// keeps the last traces of acne away on very steep faces.
+	float cosTheta = clamp(nrm.y, 0.0, 1.0);
+	float bias = 0.0012 + 0.0015 * (1.0 - cosTheta);
+
+	if (shadowSoft){
+		float lit = 0.0;
+		for (int y = -1; y <= 1; y++){
+			for (int x = -1; x <= 1; x++){
+				vec2 offset = vec2(float(x), float(y)) * shadowTexel;
+				float sampleDepth = texture2D(shadowTex, uv + offset).r;
+				if (depth - bias <= sampleDepth) lit += 1.0;
+			}
+		}
+		return lit / 9.0;
+	}
+
+	float sampleDepth = texture2D(shadowTex, uv).r;
+	return depth - bias <= sampleDepth ? 1.0 : 0.0;
 }
 
 void main(){
@@ -57,26 +109,9 @@ void main(){
 			bump += (texture3D(normalTex, vec3(gl_TexCoord[1].st,0) + vec3(0,0,0.80)).rgb - 0.5)*gl_Color.a;
 		}
 		
-		// Light from player
+		// Ambient light only: the player is no longer used as a light source.
 		vec3 light_color = light_ambient;
-		vec3 L = normalize(lightDir);
-		
-		if (d<lightLimit){
-			vec3 N = normalize(bump);
-			float falloff = min(0.04*lightLimit-0.04*d,1.0);
-			
-			float lambertTerm = dot(N,L);
-			
-			if(lambertTerm > 0.0){
-				light_color += vec3(light_diffuse * lambertTerm * falloff);	
-				
-				vec3 E = normalize(eyeVec);
-				vec3 R = reflect(-L, N);
-				float specularFact = max(dot(R, E), 0.0);
-				light_color += vec3(light_specular * specularFact * falloff);
-			}
-		}
-		light_color += L.z/20.0;
+		light_color += normalize(lightDir).z/20.0;
 		finalColor = color * vec4(light_color,1);
 		
 		
@@ -97,6 +132,9 @@ void main(){
 			finalColor.rgb += texture3D(causticTex, vec3(gl_TexCoord[1].st, 0.25) * vec3(causticZoomX, causticZoomY,1.0) + vec3(causticX, causticY,0.0) ).rgb * causticAlpha;
 			finalColor.rgb += texture3D(causticTex, vec3(gl_TexCoord[1].st, 0.75) * vec3(causticZoomX, causticZoomY,1.0) + vec3(-causticX, -causticY,0.0) ).rgb * causticAlpha;
 		}
+		
+		// Shadow from the light coming straight from above
+		finalColor.rgb *= mix(1.0 - shadowDarkness, 1.0, getShadow());
 		
 		
 		// Gradient blur

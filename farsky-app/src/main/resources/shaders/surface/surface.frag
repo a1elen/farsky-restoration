@@ -31,12 +31,6 @@ void main(){
 		// Global lighting
 		finalColor = finalColor * vec4(light_ambient,1.0);
 		
-		// Light
-		if (d<lightLimit){
-			float light = min(lightLimit*lightLimit/(d*d), 1.5);
-			finalColor = finalColor * vec4(light,light,light,1);
-		}
-		
 		// Gradient blur
 		finalColor.a = min(finalColor.a,(visibleLimit-d)/40.0);
 		

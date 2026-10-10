@@ -9,7 +9,12 @@ import game.inventory.InventoryHud;
 import game.map.MapRenderer;
 import game.shader.BlackBordersEffect;
 import game.shader.BloomEffect;
+import game.shader.ColorGradeEffect;
+import game.shader.FxaaEffect;
+import game.shader.PostFX;
 import game.shader.Shaders;
+import game.shader.SsaoEffect;
+import game.shadow.ShadowMap;
 import game.util.Point;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.GL11;
@@ -72,14 +77,25 @@ public final class RenderManager {
                GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
             }
 
+            ShadowMap.render();
+            PostFX.beginScene();
             setPerspective();
             renderWorld();
             Shaders.unbind();
+            PostFX.endScene();
             setOrtho();
-            BloomEffect.apply(DepthAtmosphere.getMinBloom());
-            if (!freeCam) {
+            SsaoEffect.render();
+            PostFX.composite();
+            if (PostFX.bloomLevel > 0) {
+               BloomEffect.apply(DepthAtmosphere.getMinBloom());
+            }
+
+            if (!freeCam && PostFX.vignetteEnabled) {
                BlackBordersEffect.render();
             }
+
+            FxaaEffect.render();
+            ColorGradeEffect.render();
 
             if (!freeCam && !hideHud) {
                GuiRenderer.render();
@@ -121,12 +137,25 @@ public final class RenderManager {
             break;
          case CINEMATIC_INGAME:
             GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+            ShadowMap.render();
+            PostFX.beginScene();
             setPerspective();
             renderWorld();
             Shaders.unbind();
+            PostFX.endScene();
             setOrtho();
-            BloomEffect.apply(DepthAtmosphere.getMinBloom());
-            BlackBordersEffect.render();
+            SsaoEffect.render();
+            PostFX.composite();
+            if (PostFX.bloomLevel > 0) {
+               BloomEffect.apply(DepthAtmosphere.getMinBloom());
+            }
+
+            if (PostFX.vignetteEnabled) {
+               BlackBordersEffect.render();
+            }
+
+            FxaaEffect.render();
+            ColorGradeEffect.render();
             Cinematic.render();
             GuiRenderer.render();
             break;
@@ -169,11 +198,21 @@ public final class RenderManager {
                GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
             }
 
+            ShadowMap.render();
+            PostFX.beginScene();
             setPerspective();
             renderWorld();
             Shaders.unbind();
+            PostFX.endScene();
             setOrtho();
-            BloomEffect.apply(0.2F);
+            SsaoEffect.render();
+            PostFX.composite();
+            if (PostFX.bloomLevel > 0) {
+               BloomEffect.apply(0.2F);
+            }
+
+            FxaaEffect.render();
+            ColorGradeEffect.render();
             GuiRenderer.render();
             break;
          case PAUSED:
@@ -255,6 +294,7 @@ public final class RenderManager {
       GL11.glPushMatrix();
       Camera.applyMatrix();
       GL11.glTranslatef(-Camera.getWorldOffset().x, 0.0F, -Camera.getWorldOffset().z);
+      PostFX.beginWorld();
       SkyDome.render();
       GameScene.render();
       GL11.glPopMatrix();

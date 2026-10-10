@@ -2,8 +2,18 @@
 
 uniform float time;
 
+// Shadow map (top down light, see game.shadow.ShadowMap)
+uniform bool shadowEnabled;
+uniform mat4 shadowMatrix;
+uniform mat4 viewFromWorld;
+varying vec4 shadowCoord;
+
 varying vec3 lightDir, eyeVec;
 varying float d;
+// World space geometric normal of the chunk, used for the shadow slope bias
+varying vec3 worldNormal;
+// Absolute world space position, used for the normal offset shadow lookup
+varying vec3 vWorldPos;
 
 void main(void){
 	// Tangent & Normal vector => Tangent could be given via openGL to work in every case
@@ -31,9 +41,16 @@ void main(void){
 	
 	d = length(lightDir);
 	
+	worldNormal = gl_Normal;
 	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
 	gl_TexCoord[0] = gl_MultiTexCoord0;
 	gl_TexCoord[1] = gl_MultiTexCoord0;
 	gl_FrontColor=gl_Color;
 	
+	// Shadow lookup coordinates: back to absolute world space (this undoes the
+	// world offset translation of the view matrix), then into light space.
+	vec4 worldPos = viewFromWorld * (gl_ModelViewMatrix * gl_Vertex);
+	vWorldPos = worldPos.xyz;
+	if (shadowEnabled) shadowCoord = shadowMatrix * worldPos;
+	else shadowCoord = vec4(0.0, 0.0, 0.0, 1.0);
 }

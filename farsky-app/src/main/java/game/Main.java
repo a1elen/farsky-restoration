@@ -18,6 +18,8 @@ import game.manager.TextureManager;
 import game.map.MapRenderer;
 import game.net.NetSession;
 import game.manager.GameTime;
+import game.shader.PostFX;
+import game.shadow.ShadowMap;
 import game.util.FontRenderer;
 import game.util.IconLoader;
 import game.util.DisplayModes;
@@ -277,7 +279,9 @@ public class Main {
             frameCount++;
             accumNanos += frameNanos;
             long beforeSyncNanos = System.nanoTime();
-            Display.sync(targetFps);
+            if (targetFps > 0) {
+               Display.sync(targetFps);
+            }
             syncSleepNanos += System.nanoTime() - beforeSyncNanos;
             if (accumNanos >= 1000000000L) {
                fps = frameCount;
@@ -295,6 +299,8 @@ public class Main {
    private static void shutdown() {
       Loading.stopWorldThread();
       SoundManager.destroy();
+      PostFX.dispose();
+      ShadowMap.dispose();
       TextureManager.deleteAll();
       Display.destroy();
    }

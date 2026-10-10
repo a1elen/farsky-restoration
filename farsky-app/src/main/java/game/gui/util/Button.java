@@ -545,6 +545,18 @@ public final class Button {
       return this.label.equals(label);
    }
 
+   public final int getX() {
+      return this.x;
+   }
+
+   public final int getY() {
+      return this.y;
+   }
+
+   public final int getTextWidth() {
+      return this.textWidth;
+   }
+
    public final boolean isClicked() {
       return this.hovered && this.enabled && RawInput.leftMouseDown;
    }

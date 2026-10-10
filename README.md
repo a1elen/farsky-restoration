@@ -18,6 +18,10 @@ NOT TESTED FULLY
 
 Everything is saved on the host: worlds in `save/`, per-player progress in `save/players/`. Joining players keep **no local save files**.
 
+* **Graphics options** — individually toggleable in *Options → Graphics*.
+  * **EXPERIMENTAL:** shadows, SSAO and caustics — they can cost performance and are still being tuned.
+* **Borderless windowed mode** — *Options → Graphics → Screen* offers *Fullscreen*, *Windowed* and *Borderless*.
+
 ## Download and run
 
 1. Download FarSky from [itch.io](https://farsky-interactive.itch.io/farsky) — you need to own the game (this project does not include any game assets).

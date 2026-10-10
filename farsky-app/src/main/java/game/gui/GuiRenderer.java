@@ -21,6 +21,7 @@ import java.util.Map.Entry;
 import org.lwjgl.opengl.Display;
 import game.render.FullscreenQuad;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 
 public final class GuiRenderer {
    private static float cinematicBarHeight = 0.0F;
@@ -28,6 +29,12 @@ public final class GuiRenderer {
    public static int loadPercent = 0;
 
    public static void render() {
+      // Fixed function GUI drawing (fonts, buttons) relies on 2D texturing
+      // being enabled on the current unit; the post processing effects may
+      // have left it disabled for the frame.
+      GL13.glActiveTexture(GL13.GL_TEXTURE0);
+      GL11.glEnable(GL11.GL_TEXTURE_2D);
+      GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
       switch (Main.getGameState()) {
          case PLAYING:
             GameOverlay.render(true);

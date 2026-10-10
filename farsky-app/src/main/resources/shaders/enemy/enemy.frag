@@ -61,12 +61,6 @@ void main(){
 			
 		// Gradient blur
 		finalColor.a = min(finalColor.a,(visibleLimit-d)/40.0);
-		
-		// Light
-		if (d<lightLimit){
-			float light = min(lightLimit*lightLimit/(d*d), 2.0);
-			finalColor = finalColor * vec4(light,light,light,1);
-		}
 	}
 	
 	gl_FragColor = finalColor * gl_Color.rgba;
