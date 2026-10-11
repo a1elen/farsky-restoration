@@ -92,22 +92,33 @@ public final class EnemyGenerator {
       float startAngle = GameScene.avatar.getLookDir().toCoord().angle();
       this.spawnRing(Camera.getPosition().x, Camera.getPosition().z, GameScene.avatar.getPos2D(), startAngle);
 
-      game.net.RemotePlayer remote = game.net.NetSession.getRemotePlayer();
-      if (remote == null) {
-         return;
-      }
-
-      Point remotePos = remote.getRenderPos();
+      java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
       Coord localCenter = new Coord(Camera.getPosition().x, Camera.getPosition().z);
-      Coord remoteCenter = remotePos.toCoord();
-      // Two players swimming together share one ring instead of doubling up.
-      if (remoteCenter.distanceTo(localCenter) <= ChunkManager.viewDistance * 2.0F) {
-         return;
-      }
+      for (int i = 0; i < remotes.size(); i++) {
+         game.net.RemotePlayer remote = remotes.get(i);
+         Point remotePos = remote.getRenderPos();
+         Coord remoteCenter = remotePos.toCoord();
+         // Players swimming together share one ring instead of doubling up.
+         if (remoteCenter.distanceTo(localCenter) <= ChunkManager.viewDistance * 2.0F) {
+            continue;
+         }
 
-      float yawRad = (float)Math.toRadians((double)remote.getRenderYaw());
-      Coord remoteLook = new Coord(-Math.sin((double)yawRad), -Math.cos((double)yawRad));
-      this.spawnRing(remotePos.x, remotePos.z, remoteCenter, remoteLook.angle());
+         boolean covered = false;
+         for (int j = 0; j < i; j++) {
+            if (remoteCenter.distanceTo(remotes.get(j).getRenderPos().toCoord()) <= ChunkManager.viewDistance * 2.0F) {
+               covered = true;
+               break;
+            }
+         }
+
+         if (covered) {
+            continue;
+         }
+
+         float yawRad = (float)Math.toRadians((double)remote.getRenderYaw());
+         Coord remoteLook = new Coord(-Math.sin((double)yawRad), -Math.cos((double)yawRad));
+         this.spawnRing(remotePos.x, remotePos.z, remoteCenter, remoteLook.angle());
+      }
    }
 
    /** One spawn ring at view distance around (ringX, ringZ), starting at startAngle. */

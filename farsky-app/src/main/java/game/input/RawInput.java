@@ -22,6 +22,9 @@ public final class RawInput {
    public static boolean doubleClick = false;
    public static int mouseX;
    public static int mouseY;
+   // Mouse movement since the last frame (consumed once per update).
+   public static int mouseDX;
+   public static int mouseDY;
    public static boolean mouseCaptured = false;
    public static float scrollDelta;
    public static int invertY = 1;
@@ -34,6 +37,8 @@ public final class RawInput {
       leftMouseReleased = false;
       mouseX = Mouse.getX();
       mouseY = Display.getHeight() - Mouse.getY();
+      mouseDX = Mouse.getDX();
+      mouseDY = Mouse.getDY();
       scrollDelta = Mouse.getDWheel() * deltaTime;
       Mouse.hasWheel();
       if (!leftMouseHeld && Mouse.isButtonDown(0)) {
@@ -67,16 +72,16 @@ public final class RawInput {
       timeSinceLastClick += deltaTime;
       if (Mouse.isInsideWindow() && mouseCaptured && GameScene.avatar != null) {
          if (RenderManager.freeCam || Main.getGameState() != GameState.PLAYING) {
-            Camera.input.lookHorizontalDelta = -Mouse.getDX() * 8.0F * deltaTime * sensitivity;
-            Camera.input.lookVerticalDelta = Mouse.getDY() * 8.0F * deltaTime * sensitivity * invertY;
+            Camera.input.lookHorizontalDelta = -mouseDX * 8.0F * deltaTime * sensitivity;
+            Camera.input.lookVerticalDelta = mouseDY * 8.0F * deltaTime * sensitivity * invertY;
          } else {
             Submarine sub = GameScene.getActiveSubmarine();
             if (GameScene.avatar.isNavigating() && sub != null) {
-               sub.input.lookHorizontalDelta = -Mouse.getDX() * 8.0F * deltaTime * sensitivity;
-               sub.input.lookVerticalDelta = Mouse.getDY() * 8.0F * deltaTime * sensitivity * invertY;
+               sub.input.lookHorizontalDelta = -mouseDX * 8.0F * deltaTime * sensitivity;
+               sub.input.lookVerticalDelta = mouseDY * 8.0F * deltaTime * sensitivity * invertY;
             } else {
-               GameScene.avatar.input.lookHorizontalDelta = -Mouse.getDX() * 8.0F * deltaTime * sensitivity;
-               GameScene.avatar.input.lookVerticalDelta = Mouse.getDY() * 8.0F * deltaTime * sensitivity * invertY;
+               GameScene.avatar.input.lookHorizontalDelta = -mouseDX * 8.0F * deltaTime * sensitivity;
+               GameScene.avatar.input.lookVerticalDelta = mouseDY * 8.0F * deltaTime * sensitivity * invertY;
             }
          }
       }

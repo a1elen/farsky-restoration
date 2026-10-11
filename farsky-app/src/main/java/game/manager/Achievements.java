@@ -35,6 +35,12 @@ public class Achievements implements Serializable {
       return this.money;
    }
 
+   /** Multiplayer: restores the host-authoritative balance for a joining player. */
+   public final void setMoney(int amount) {
+      this.money = Math.max(0, amount);
+      SaveManager.saveAchievements();
+   }
+
    public final void updateSurvivorLock() {
       NewGameMenu.survivorLocked = !this.unlockSurvivor;
    }

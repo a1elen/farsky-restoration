@@ -5,6 +5,8 @@ import game.cinematic.Cinematic;
 import game.environment.DepthAtmosphere;
 import game.environment.SkyDome;
 import game.gui.GuiRenderer;
+import game.gui.ScreenBlur;
+import game.gui.util.MenuBackground;
 import game.inventory.InventoryHud;
 import game.map.MapRenderer;
 import game.shader.BlackBordersEffect;
@@ -49,7 +51,11 @@ public final class RenderManager {
    }
 
    public static void update(float delta) {
-      if (Main.getGameState() == GameState.PLAYING && !freeCam && GameScene.avatar != null) {
+      GameState state = Main.getGameState();
+      // Menus no longer pause the world: keep the camera on the avatar so the
+      // live scene renders behind the map / inventory / pause menu.
+      boolean avatarCamera = state == GameState.PLAYING || state == GameState.MAP || state == GameState.INVENTORY || state == GameState.PAUSED;
+      if (avatarCamera && !freeCam && GameScene.avatar != null) {
          Camera.setFromAvatar(GameScene.avatar);
       }
 
@@ -65,6 +71,44 @@ public final class RenderManager {
       Camera.applyTransform();
       DepthAtmosphere.update(Camera.getPosition().y);
       aspectRatio = (float)Display.getWidth() / Display.getHeight();
+   }
+
+   /**
+    * Full world pipeline used by the gameplay states and their menus: shadow
+    * map, world pass, post processing and tone mapping. The caller draws the
+    * state specific GUI on top afterwards.
+    */
+   private static void renderGameWorld() {
+      GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+      ShadowMap.render();
+      PostFX.beginScene();
+      setPerspective();
+      renderWorld();
+      Shaders.unbind();
+      PostFX.endScene();
+      setOrtho();
+      SsaoEffect.render();
+      PostFX.composite();
+      if (PostFX.bloomLevel > 0) {
+         BloomEffect.apply(DepthAtmosphere.getMinBloom());
+      }
+
+      if (!freeCam && PostFX.vignetteEnabled) {
+         BlackBordersEffect.render();
+      }
+
+      FxaaEffect.render();
+      ColorGradeEffect.render();
+      Shaders.unbind();
+      setOrtho();
+      // Menus no longer pause the world: capture the fresh scene as the blurred
+      // menu backdrop before any menu chrome is drawn on top of it.
+      GameState state = Main.getGameState();
+      if (state == GameState.MAP || state == GameState.INVENTORY) {
+         ScreenBlur.captureBackdrop();
+      } else if (state == GameState.PAUSED) {
+         MenuBackground.captureBackdrop();
+      }
    }
 
    public static void render() {
@@ -160,9 +204,8 @@ public final class RenderManager {
             GuiRenderer.render();
             break;
          case MAP:
-            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
-            Shaders.unbind();
-            setOrtho();
+            // The world keeps running behind the map: render it live first.
+            renderGameWorld();
             GuiRenderer.render();
             GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
             Shaders.mapShader.bind();
@@ -184,9 +227,8 @@ public final class RenderManager {
             MapRenderer.renderFullMap();
             break;
          case INVENTORY:
-            GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
-            Shaders.unbind();
-            setOrtho();
+            // The world keeps running behind the inventory too.
+            renderGameWorld();
             GuiRenderer.render();
             Shaders.guiEffectShader.bind();
             InventoryHud.render();
@@ -216,8 +258,8 @@ public final class RenderManager {
             GuiRenderer.render();
             break;
          case PAUSED:
-            Shaders.unbind();
-            setOrtho();
+            // The world keeps running behind the pause menu.
+            renderGameWorld();
             GuiRenderer.render();
             break;
          case RELOADING:

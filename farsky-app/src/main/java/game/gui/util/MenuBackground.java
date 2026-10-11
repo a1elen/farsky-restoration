@@ -24,6 +24,14 @@ public final class MenuBackground {
       }
    }
 
+   /**
+    * Captures the live world as the pause-menu backdrop. Called right after the
+    * world pass because the world no longer freezes while the menu is open.
+    */
+   public static void captureBackdrop() {
+      captureTexture = TextureManager.captureFramebuffer(captureTexture);
+   }
+
    public static void applyBlur() {
       if (Main.getGameState() == GameState.PAUSED) {
          BlurEffect.apply(captureTexture, 2.0F / Display.getWidth());

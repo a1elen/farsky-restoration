@@ -250,6 +250,9 @@ public final class SaveManager {
          oos.writeFloat(pos.z);
          oos.writeObject(GameScene.avatar.getPlayerState());
          oos.writeObject(GameScene.avatar.getInventory());
+         // Coins are host-authoritative: stored with the player's progress so a
+         // rejoining player gets their balance back.
+         oos.writeInt(game.Main.achievements != null ? game.Main.achievements.getMoney() : 0);
          oos.flush();
          return bos.toByteArray();
       } catch (Throwable t) {
@@ -298,6 +301,14 @@ public final class SaveManager {
          GameScene.avatar.setPos(pos);
          GameScene.avatar.setLastSafeSpot(pos);
          game.net.NetSession.copyInventoryContents(saved, GameScene.avatar.getInventory());
+         try {
+            if (game.Main.achievements != null) {
+               game.Main.achievements.setMoney(ois.readInt());
+            }
+         } catch (Throwable oldBlob) {
+            // Older progress files end after the inventory: keep current coins.
+         }
+
          return true;
       } catch (Throwable t) {
          return false;

@@ -17,6 +17,8 @@ import game.outsideObj.HarpoonCannon;
 import game.player.PlayerInput;
 import game.shader.Shaders;
 import game.util.Coord;
+import game.util.FontFamily;
+import game.util.FontRenderer;
 import game.util.Point;
 import game.world.structure.GamePlayElmt;
 import game.world.structure.GamePlayType;
@@ -44,6 +46,13 @@ public final class MapRenderer {
    private static float currentPanY = -100.0F;
    private static float mapScale = 3.0F;
    private static float mapVerticalScale = 3.0F / 150.0F;
+   // Full-map view: rotation around the vertical axis and screen-aligned pan
+   // accumulated from LMB drag, RMB drag and the WASD keys.
+   private static float mapYaw = 0.0F;
+   private static float dragPanX = 0.0F;
+   private static float dragPanZ = 0.0F;
+   private static final float DRAG_PAN_SCALE = 0.1F;
+   private static final float DRAG_YAW_SCALE = 0.35F;
 
    public static void init() {
       mapOffset = new Point();
@@ -114,7 +123,8 @@ public final class MapRenderer {
       }
 
       moveDir.normalize();
-      mapOffset.add(moveDir.scaled(dt * 75.0F));
+      dragPanX += moveDir.x * dt * 75.0F;
+      dragPanZ += moveDir.z * dt * 75.0F;
       if (Math.abs(currentPanY - targetPanY) > 0.05F) {
          currentPanY = currentPanY + (targetPanY - currentPanY) * 5.0F * dt;
       } else {
@@ -168,6 +178,10 @@ public final class MapRenderer {
       Shaders.setUniform("echoPower", echoPower);
       GL11.glPushMatrix();
       GL11.glRotatef(45.0F, 1.0F, 0.0F, 0.0F);
+      // Screen-aligned pan applied outside the yaw rotation: dragging and WASD
+      // keep moving the view in screen directions no matter how the map spins.
+      GL11.glTranslatef(dragPanX, 0.0F, dragPanZ);
+      GL11.glRotatef(mapYaw, 0.0F, 1.0F, 0.0F);
       GL11.glTranslated(mapOffset.x, mapOffset.y, mapOffset.z);
       GL11.glPushMatrix();
       Shaders.setUniform("drawMap", true);
@@ -222,6 +236,38 @@ public final class MapRenderer {
       GL11.glVertex2f(Display.getWidth() - 220 - 10, 10.0F);
       GL11.glVertex2f(Display.getWidth() - 220 - 10, 230.0F);
       GL11.glEnd();
+      renderTimeOfDay(10.0F + 230.0F);
+   }
+
+   /**
+    * In-game clock and day counter drawn directly below the minimap panel
+    * (top-left coordinates, so the panel occupies y = 10..230).
+    */
+   private static void renderTimeOfDay(float top) {
+      int centerX = Display.getWidth() - 120;
+      int clockY = (int)top + 14;
+      int phaseY = clockY + 20;
+      FontRenderer.saveFontFamily();
+      FontRenderer.setFontFamily(FontFamily.ECCENTRIC);
+
+      String clock = "Day " + GameTime.getDayNumber() + " - " + GameTime.getClockLabel();
+      GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.75F);
+      FontRenderer.drawCentered(centerX + 1, clockY + 1, clock, 0.5F);
+      GL11.glColor4f(1.0F, 1.0F, 1.0F, 0.95F);
+      FontRenderer.drawCentered(centerX, clockY, clock, 0.5F);
+
+      String phase = GameTime.getPhaseLabel();
+      if (GameTime.isNight()) {
+         GL11.glColor4f(0.55F, 0.7F, 1.0F, 0.95F);
+      } else if (GameTime.isDusk()) {
+         GL11.glColor4f(1.0F, 0.7F, 0.3F, 0.95F);
+      } else {
+         GL11.glColor4f(1.0F, 0.93F, 0.5F, 0.95F);
+      }
+
+      FontRenderer.drawCentered(centerX, phaseY, phase, 0.45F);
+      GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+      FontRenderer.restoreFontFamily();
    }
 
    public static void renderMinimap() {
@@ -412,9 +458,10 @@ public final class MapRenderer {
          GL11.glPopMatrix();
       }
 
-      // The other player: same cursor as the local one, tinted green.
-      RemotePlayer remotePlayer = NetSession.getRemotePlayer();
-      if (remotePlayer != null) {
+      // The other players: same cursor as the local one, tinted green.
+      java.util.ArrayList<RemotePlayer> remotes = NetSession.getRemotePlayers();
+      for (int r = 0; r < remotes.size(); r++) {
+         RemotePlayer remotePlayer = remotes.get(r);
          Point remotePos = remotePlayer.getRenderPos();
          GL11.glBindTexture(GL11.GL_TEXTURE_2D, TextureManager.mapCursor);
          GL11.glColor4f(0.35F, 1.0F, 0.45F, 1.0F);
@@ -490,5 +537,32 @@ public final class MapRenderer {
       targetPanY += delta;
       targetPanY = Math.max(-150.0F, targetPanY);
       targetPanY = Math.min(-30.0F, targetPanY);
+   }
+
+   /**
+    * Full-map mouse controls: LMB drag pans the view, RMB drag rotates the map
+    * around the player. Deltas are the raw mouse motion of this frame (pixels).
+    */
+   public static void drag(int dx, int dy, boolean panning, boolean rotating) {
+      if (panning) {
+         // Raw mouse Y grows upwards, screen Y downwards: flip it so the map
+         // follows the cursor.
+         dragPanX += dx * DRAG_PAN_SCALE;
+         dragPanZ -= dy * DRAG_PAN_SCALE;
+      }
+
+      if (rotating) {
+         mapYaw += dx * DRAG_YAW_SCALE;
+      }
+   }
+
+   /** Re-centers and de-rotates the full map view (called when the map opens). */
+   public static void resetView() {
+      mapYaw = 0.0F;
+      dragPanX = 0.0F;
+      dragPanZ = 0.0F;
+      if (GameScene.avatar != null) {
+         mapOffset = new Point(-GameScene.avatar.getCameraPos().x / 128.0F * mapScale, -50.0F, -GameScene.avatar.getCameraPos().z / 128.0F * mapScale - 50.0F);
+      }
    }
 }

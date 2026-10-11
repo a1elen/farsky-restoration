@@ -155,6 +155,57 @@ public final class InputManager {
       }
    }
 
+   /**
+    * Menus no longer pause the world, so any movement / attack / interact flag
+    * left over from the last PLAYING frame would keep firing while a menu is
+    * open (e.g. holding W while pressing ESC). Zero everything on entry.
+    */
+   private static void clearGameplayInput() {
+      Camera.input.moveForward = false;
+      Camera.input.moveBackward = false;
+      Camera.input.strafeLeft = false;
+      Camera.input.strafeRight = false;
+      Camera.input.ascend = false;
+      Camera.input.descend = false;
+      Camera.input.lookHorizontalDelta = 0.0F;
+      Camera.input.lookVerticalDelta = 0.0F;
+      Submarine sub = GameScene.getActiveSubmarine();
+      if (sub != null) {
+         sub.input.moveForward = false;
+         sub.input.moveBackward = false;
+         sub.input.strafeLeft = false;
+         sub.input.strafeRight = false;
+         sub.input.ascend = false;
+         sub.input.descend = false;
+         sub.input.lookHorizontalDelta = 0.0F;
+         sub.input.lookVerticalDelta = 0.0F;
+      }
+
+      if (GameScene.avatar != null) {
+         GameScene.avatar.input.moveForward = false;
+         GameScene.avatar.input.moveBackward = false;
+         GameScene.avatar.input.strafeLeft = false;
+         GameScene.avatar.input.strafeRight = false;
+         GameScene.avatar.input.ascend = false;
+         GameScene.avatar.input.descend = false;
+         GameScene.avatar.input.primaryMouseDown = false;
+         GameScene.avatar.input.primaryMouseHeld = false;
+         GameScene.avatar.input.secondaryMouseDown = false;
+         GameScene.avatar.input.secondaryMouseHeld = false;
+         GameScene.avatar.input.interact = false;
+         GameScene.avatar.input.slot0 = false;
+         GameScene.avatar.input.slot1 = false;
+         GameScene.avatar.input.slot2 = false;
+         GameScene.avatar.input.slot3 = false;
+         GameScene.avatar.input.slot4 = false;
+         GameScene.avatar.input.slot5 = false;
+         GameScene.avatar.input.slot6 = false;
+         GameScene.avatar.input.slot7 = false;
+         GameScene.avatar.input.lookHorizontalDelta = 0.0F;
+         GameScene.avatar.input.lookVerticalDelta = 0.0F;
+      }
+   }
+
    public static void update(float deltaTime) {
       RawInput.update(deltaTime);
 
@@ -179,13 +230,17 @@ public final class InputManager {
             MapRenderer.mapInput.strafeLeft = isKey(keyStrafeLeft, KeyState.HELD);
             MapRenderer.mapInput.strafeRight = isKey(keyStrafeRight, KeyState.HELD);
             MapRenderer.scroll(RawInput.scrollDelta * 10.0F);
+            // LMB drag pans the map, RMB drag rotates it (WASD + wheel above still work).
+            MapRenderer.drag(RawInput.mouseDX, RawInput.mouseDY, RawInput.leftMouseHeld, RawInput.rightMouseHeld);
             RawInput.mouseCaptured = false;
             if (isKey(keyEsc, KeyState.JUST_PRESSED) || isKey(keyMap, KeyState.JUST_PRESSED) || isKey(keyInteract, KeyState.JUST_PRESSED)) {
                Main.gameState = GameState.PLAYING;
             }
 
             if (Main.hasStateChanged()) {
-               SoundManager.pauseAll();
+               clearGameplayInput();
+               MapRenderer.resetView();
+               SoundManager.resumeAll();
             }
             break;
          case INVENTORY:
@@ -195,7 +250,8 @@ public final class InputManager {
             }
 
             if (Main.hasStateChanged()) {
-               SoundManager.pauseAll();
+               clearGameplayInput();
+               SoundManager.resumeAll();
             }
             break;
          case PLAYING:
@@ -404,7 +460,8 @@ public final class InputManager {
             }
 
             if (Main.hasStateChanged()) {
-               SoundManager.pauseAll();
+               clearGameplayInput();
+               SoundManager.resumeAll();
             }
             break;
          case STARTUP:

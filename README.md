@@ -5,18 +5,24 @@ NOT TESTED FULLY
 
 ## Features
 
-* **Online multiplayer** — one host + one player, over LAN or the internet.
+* **Online multiplayer** — one host + up to 7 other players (8 in total), over LAN or the internet.
 * **What is synced:**
-  * players: position, health / hunger / oxygen, inventory and hotbar
+  * players: position, health / hunger / oxygen, inventory and hotbar; coins are per player, saved with them on the host
   * world: mined blocks, ores, harvested plants, dropped items
   * bases, chests, tombs, plant pots, submarine pieces
   * droids: state, inventory and commands; submarines: spawn and driving
-  * water level, day/night clock, money HUD
-  * creatures: hostile AI and fish schools (run by the host, mirrored live on both sides)
-  * in-game chat
+  * water level, day/night clock
+  * creatures: hostile AI and fish schools (run by the host, mirrored live on every side, smoothly interpolated)
+  * in-game chat with `*player* connected / disconnected` notices
   * nicknames drawn above player sprites
+  * player list with ping and coins in the pause menu (Esc)
 
-Everything is saved on the host: worlds in `save/`, per-player progress in `save/players/`. Joining players keep **no local save files**.
+Everything is saved on the host: worlds in `save/`, per-player progress in `save/players/<world>_<nickname>.sav`. Joining players keep **no local save files** — their inventory and coins follow their nickname on the host.
+
+* **Menus no longer pause the game** — the inventory, map and Esc menus overlay the live world: enemies, hunger and the clock keep running.
+* **Time of day under the minimap** — day counter, clock and a day/night phase label.
+* **Map controls** — drag with the left mouse button to pan, with the right mouse button to rotate; WASD and the mouse wheel still work.
+* **Multiplayer menu** — the `X` button next to each world slot deletes that save (with a confirmation step).
 
 * **Graphics options** — individually toggleable in *Options → Graphics*.
   * Shadows with a sun elevation that follows the day/night cycle, so shadows lengthen and shift as the day passes.
@@ -29,7 +35,7 @@ Everything is saved on the host: worlds in `save/`, per-player progress in `save
 
 1. Download FarSky from [itch.io](https://farsky-interactive.itch.io/farsky) — you need to own the game (this project does not include any game assets).
 2. Install [Java 17 or newer](https://adoptium.net/).
-3. Download **[farsky-restoration.zip](https://github.com/a1elen/farsky-restoration/releases/download/v1.1/farsky-restoration.zip)** (4.6 MB, also on the [Releases page](https://github.com/a1elen/farsky-restoration/releases)).
+3. Download **[farsky-restoration.zip](https://github.com/a1elen/farsky-restoration-multiplayer/releases/download/v1.3/farsky-restoration.zip)** (also on the [Releases page](https://github.com/a1elen/farsky-restoration-multiplayer/releases)).
 4. Copy everything from the zip into the FarSky game folder (merge/overwrite).
 5. Double-click **Play FarSky.bat** — done. Use **Play FarSky (windowed).bat** if you prefer a window.
 

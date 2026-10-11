@@ -16,8 +16,12 @@ import java.util.ArrayList;
 public abstract class Enemy {
    /** Distance (in units) beyond which a remote transform snaps instead of sliding. */
    private static final float NET_SNAP_DISTANCE = 250.0F;
-   /** Exponential interpolation response, same curve as RemotePlayer. */
-   private static final float NET_SMOOTHING = 15.0F;
+   /**
+    * Exponential interpolation response. Creatures are resampled every 0.1s, so
+    * the chase constant stays below ~10 (time constant > sync interval) and the
+    * glide never turns into a dash-then-idle stutter.
+    */
+   private static final float NET_SMOOTHING = 8.0F;
 
    protected EnemyType type;
    protected float health;
@@ -300,7 +304,7 @@ public abstract class Enemy {
    protected final void updateCombatFocus() {
       Point origin = this.getPosition();
       Point local = GameScene.avatar == null ? null : GameScene.avatar.getCameraPos();
-      Point peer = game.net.NetSession.getRemoteAggroPos();
+      Point peer = game.net.NetSession.getClosestRemotePos(origin);
 
       if (local == null) {
          this.combatFocus = peer;

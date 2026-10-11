@@ -40,6 +40,10 @@ public final class MultiplayerMenu extends MenuScreen {
    private int focus = FOCUS_NONE;
    private String menuStatus = "";
    private float slotInfoTimer = 0.0F;
+   // Two-step delete: clicking the X arms the slot, a second click confirms.
+   private int armedDeleteSlot = -1;
+   private float armedDeleteTimer = 0.0F;
+   private static final float DELETE_BOX_SIZE = 26.0F;
 
    /** Save slot path for a 1-based slot number; the choice seeds the session save. */
    public static String getSlotPath(int slot) {
@@ -64,6 +68,31 @@ public final class MultiplayerMenu extends MenuScreen {
       FontRenderer.setFontFamily(FontFamily.CHAPARRAL);
       GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
       FontRenderer.drawCentered(centerX, centerY - 195, "Multiplayer", 0.7F);
+
+      for (int i = 0; i < SLOT_COUNT; i++) {
+         if (this.slotInfo[i] == null || this.slotInfo[i].equals("Empty")) {
+            continue;
+         }
+
+         int boxX = this.deleteBoxX(i);
+         int boxY = this.deleteBoxY();
+         boolean hovered = this.isMouseOverDeleteBox(i);
+         boolean armed = this.armedDeleteSlot == i;
+         if (armed || hovered) {
+            GL11.glColor4f(0.8F, 0.15F, 0.15F, 0.9F);
+         } else {
+            GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
+         }
+
+         Button.drawBackground(boxX, boxY, DELETE_BOX_SIZE, DELETE_BOX_SIZE);
+         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+         FontRenderer.drawCentered(boxX + (int)DELETE_BOX_SIZE / 2, boxY + 5, "X", 0.5F);
+         if (armed) {
+            GL11.glColor4f(1.0F, 0.4F, 0.4F, 1.0F);
+            FontRenderer.drawCentered(boxX + (int)DELETE_BOX_SIZE / 2, boxY + 34, "Sure?", 0.4F);
+            GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+         }
+      }
 
       String status = this.menuStatus.isEmpty() ? NetSession.statusText : this.menuStatus;
       if (status != null && !status.isEmpty()) {
@@ -103,6 +132,7 @@ public final class MultiplayerMenu extends MenuScreen {
          this.onButtonClicked(this.cancelButton);
       }
 
+      this.processDeleteClicks(delta);
       this.processKeys();
    }
 
@@ -383,6 +413,78 @@ public final class MultiplayerMenu extends MenuScreen {
 
          this.slotInfo[i] = info == null ? "Empty" : info.getGameMode() + ", " + info.getMinutesPlayed() + " min";
       }
+   }
+
+   /** Left edge of the delete box for a slot: right of the slot button, in the gap. */
+   private int deleteBoxX(int slot) {
+      return Display.getWidth() / 2 - 300 + 300 * slot + 115;
+   }
+
+   private int deleteBoxY() {
+      return Display.getHeight() / 2 - 38;
+   }
+
+   private boolean isMouseOverDeleteBox(int slot) {
+      int boxX = this.deleteBoxX(slot);
+      int boxY = this.deleteBoxY();
+      return RawInput.mouseX > boxX
+         && RawInput.mouseX < boxX + DELETE_BOX_SIZE
+         && RawInput.mouseY > boxY
+         && RawInput.mouseY < boxY + DELETE_BOX_SIZE;
+   }
+
+   /**
+    * First click on a slot's X arms the delete ("Sure?"), the second one within
+    * ~3 seconds deletes the world save and every player progress file of that
+    * world. Clicking anywhere else disarms.
+    */
+   private void processDeleteClicks(float delta) {
+      if (this.armedDeleteSlot >= 0) {
+         this.armedDeleteTimer -= delta;
+         if (this.armedDeleteTimer <= 0.0F) {
+            this.armedDeleteSlot = -1;
+         }
+      }
+
+      if (!RawInput.leftMouseDown) {
+         return;
+      }
+
+      for (int i = 0; i < SLOT_COUNT; i++) {
+         if (this.slotInfo[i] == null || this.slotInfo[i].equals("Empty") || !this.isMouseOverDeleteBox(i)) {
+            continue;
+         }
+
+         if (this.armedDeleteSlot == i) {
+            this.deleteSlot(i);
+         } else {
+            this.armedDeleteSlot = i;
+            this.armedDeleteTimer = 3.0F;
+         }
+
+         return;
+      }
+
+      this.armedDeleteSlot = -1;
+   }
+
+   /** Removes the world save plus its save/players/&lt;world&gt;_*.sav progress files. */
+   private void deleteSlot(int slot) {
+      this.armedDeleteSlot = -1;
+      SaveManager.deleteSave(getSlotPath(slot + 1));
+      java.io.File playersDir = new java.io.File(Main.dataPath + "save/players");
+      java.io.File[] playerFiles = playersDir.listFiles();
+      if (playerFiles != null) {
+         String prefix = "world" + (slot + 1) + "_";
+         for (int i = 0; i < playerFiles.length; i++) {
+            if (playerFiles[i].getName().startsWith(prefix)) {
+               playerFiles[i].delete();
+            }
+         }
+      }
+
+      this.menuStatus = "World slot " + (slot + 1) + " deleted";
+      this.refreshSlotInfo();
    }
 
    private void saveNickname() {

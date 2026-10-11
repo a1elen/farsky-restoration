@@ -27,6 +27,57 @@ public final class RemotePlayer {
    private float renderYaw;
    private boolean initialized = false;
    private boolean navigating = false;
+   // Multiplayer identity: host = 0, clients = 1..7 (assigned at handshake).
+   private int id = 0;
+   private String nickname = "Player";
+   // Submarine slot this player is currently driving (-1 = on foot).
+   private int subIdx = -1;
+   // Screen position of this player's nametag (set during the 3D pass).
+   private boolean nametagVisible = false;
+   private float nametagX = 0.0F;
+   private float nametagY = 0.0F;
+
+   public final void setId(int value) {
+      this.id = value;
+   }
+
+   public final int getId() {
+      return this.id;
+   }
+
+   public final void setNickname(String value) {
+      this.nickname = value == null || value.isEmpty() ? "Player" : value;
+   }
+
+   public final String getNickname() {
+      return this.nickname;
+   }
+
+   public final void setSubIdx(int value) {
+      this.subIdx = value;
+   }
+
+   public final int getSubIdx() {
+      return this.subIdx;
+   }
+
+   public final void setNametag(boolean visible, float x, float y) {
+      this.nametagVisible = visible;
+      this.nametagX = x;
+      this.nametagY = y;
+   }
+
+   public final boolean isNametagVisible() {
+      return this.nametagVisible;
+   }
+
+   public final float getNametagX() {
+      return this.nametagX;
+   }
+
+   public final float getNametagY() {
+      return this.nametagY;
+   }
 
    /** True while the peer is inside a submarine: their billboard is replaced by the boat. */
    public final void setNavigating(boolean value) {

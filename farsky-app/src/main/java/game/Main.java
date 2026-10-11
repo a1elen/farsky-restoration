@@ -228,12 +228,15 @@ public class Main {
                      RenderManager.update(dt);
                      break;
                   case MAP:
+                     // Menus no longer pause the world: everything keeps running.
                      GuiRenderer.update(dt);
+                     GameScene.tick(dt);
                      MapRenderer.update(dt);
                      RenderManager.update(dt);
                      break;
                   case INVENTORY:
                      GuiRenderer.update(dt);
+                     GameScene.tick(dt);
                      InventoryHud.update(dt);
                      RenderManager.update(dt);
                      break;
@@ -252,6 +255,7 @@ public class Main {
                      break;
                   case PAUSED:
                      GuiRenderer.update(dt);
+                     GameScene.tick(dt);
                      RenderManager.update(dt);
                      break;
                   case CINEMATIC_INTRO:

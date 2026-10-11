@@ -47,17 +47,21 @@ public final class GameTime {
    }
 
    public static void update(float delta) {
-      if (Main.getGameState() != GameState.PAUSED) {
+      GameState state = Main.getGameState();
+      // Menus no longer pause the world: play time and the day/night cycle keep
+      // running while the map, inventory or pause menu are open.
+      boolean worldRunning = state == GameState.PLAYING
+         || state == GameState.MAP
+         || state == GameState.INVENTORY
+         || state == GameState.PAUSED;
+      if (worldRunning) {
          totalPlayTime += delta;
+         updateDayCycle(delta);
       }
 
       elapsedMillis = (float)(System.currentTimeMillis() - startMillis);
       if (elapsedMillis > 1000000.0F) {
          startMillis += 1000000L;
-      }
-
-      if (Main.getGameState() == GameState.PLAYING) {
-         updateDayCycle(delta);
       }
    }
 
@@ -114,5 +118,56 @@ public final class GameTime {
 
    public static boolean isDusk() {
       return !isNight() && lightLevel < 1.0F;
+   }
+
+   /** Length of one full day + night cycle in seconds. */
+   public static float getCycleDuration() {
+      float total = (dayDuration + nightDuration) * 60.0F;
+      return total > 0.0F ? total : 1.0F;
+   }
+
+   /** 1 based day counter for the HUD ("Day 3 ..."). */
+   public static int getDayNumber() {
+      return (int)(dayTime / getCycleDuration()) + 1;
+   }
+
+   /**
+    * In-game clock derived from the day/night cycle: the day phase maps to
+    * 06:00 - 18:00 and the night phase to 18:00 - 06:00, so the sun is up in
+    * the middle of the "day" portion exactly like {@link #getSunElevation()}.
+    */
+   public static String getClockLabel() {
+      float total = getCycleDuration();
+      float t = dayTime % total;
+      if (t < 0.0F) {
+         t += total;
+      }
+
+      float daySeconds = dayDuration * 60.0F;
+      float hour;
+      if (daySeconds > 0.0F && t < daySeconds) {
+         hour = 6.0F + 12.0F * (t / daySeconds);
+      } else {
+         float nightSeconds = total - daySeconds;
+         hour = nightSeconds > 0.0F ? 18.0F + 12.0F * ((t - daySeconds) / nightSeconds) : 18.0F;
+      }
+
+      hour = hour % 24.0F;
+      int wholeHours = (int)hour;
+      int minutes = (int)((hour - wholeHours) * 60.0F);
+      if (minutes > 59) {
+         minutes = 59;
+      }
+
+      return (wholeHours < 10 ? "0" : "") + wholeHours + ":" + (minutes < 10 ? "0" : "") + minutes;
+   }
+
+   /** Phase of the current cycle for the HUD: Day, Dusk or Night. */
+   public static String getPhaseLabel() {
+      if (isNight()) {
+         return "Night";
+      }
+
+      return isDusk() ? "Dusk" : "Day";
    }
 }

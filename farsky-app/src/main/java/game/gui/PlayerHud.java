@@ -222,17 +222,18 @@ public final class PlayerHud {
       ChatHud.render();
 
       if (game.net.NetSession.isActive()) {
-         GL11.glColor4f(1.0F, 0.95F, 0.6F, 0.9F);
-         FontRenderer.setFontFamily(FontFamily.ECCENTRIC);
-         String netCoins = "Coins: " + (Main.achievements != null ? Main.achievements.getMoney() : 0) + " | " + game.net.NetSession.remoteNickname + ": " + game.net.NetSession.getRemoteMoney();
-         FontRenderer.draw(Display.getWidth() - FontRenderer.getTextWidth(netCoins, 0.5F) - 24, 24, netCoins, 0.5F);
-         if (game.net.NetSession.isNametagVisible()) {
-            int tagX = (int)game.net.NetSession.getNametagX();
-            int tagY = (int)game.net.NetSession.getNametagY() - 16;
-            GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
-            FontRenderer.drawCentered(tagX + 1, tagY + 1, game.net.NetSession.remoteNickname, 0.5F);
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, 0.95F);
-            FontRenderer.drawCentered(tagX, tagY, game.net.NetSession.remoteNickname, 0.5F);
+         // Nicknames above every other player's avatar (coins live in the pause menu).
+         java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
+         for (int i = 0; i < remotes.size(); i++) {
+            game.net.RemotePlayer entry = remotes.get(i);
+            if (entry.isNametagVisible()) {
+               int tagX = (int)entry.getNametagX();
+               int tagY = (int)entry.getNametagY() - 16;
+               GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.7F);
+               FontRenderer.drawCentered(tagX + 1, tagY + 1, entry.getNickname(), 0.5F);
+               GL11.glColor4f(1.0F, 1.0F, 1.0F, 0.95F);
+               FontRenderer.drawCentered(tagX, tagY, entry.getNickname(), 0.5F);
+            }
          }
 
          GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);

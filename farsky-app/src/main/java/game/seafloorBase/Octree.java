@@ -984,12 +984,12 @@ public class Octree implements Serializable {
          }
       }
 
-      // The peer opens doors by standing next to them too: run the same
-      // proximity rule on their position so both sides animate and collide
+      // Other players open doors by standing next to them too: run the same
+      // proximity rule on their positions so every side animates and collides
       // identically without extra messages.
-      game.net.RemotePlayer remotePlayer = game.net.NetSession.getRemotePlayer();
-      if (remotePlayer != null) {
-         ArrayList<Block> remoteDoors = this.findNearbyBlocksWithElement(remotePlayer.getRenderPos().minus(this.pos), BlockType.DOOR);
+      java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
+      for (int r = 0; r < remotes.size(); r++) {
+         ArrayList<Block> remoteDoors = this.findNearbyBlocksWithElement(remotes.get(r).getRenderPos().minus(this.pos), BlockType.DOOR);
          if (remoteDoors != null) {
             for (int i = 0; i < remoteDoors.size(); i++) {
                Element door = remoteDoors.get(i).getElement(BlockType.DOOR);

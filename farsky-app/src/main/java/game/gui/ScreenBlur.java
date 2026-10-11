@@ -24,6 +24,15 @@ public final class ScreenBlur {
       }
    }
 
+   /**
+    * Captures the live world as the blurred backdrop. Called right after the
+    * world pass (before any menu chrome is drawn) because the menus no longer
+    * pause the world - the blur must follow the action, not a snapshot.
+    */
+   public static void captureBackdrop() {
+      MenuBackground.captureTexture = TextureManager.captureFramebuffer(MenuBackground.captureTexture);
+   }
+
    public static void render() {
       GL11.glDisable(GL11.GL_DEPTH_TEST);
       BlurEffect.apply(MenuBackground.captureTexture, 2.0F / Display.getWidth() * blurAmount, blurAmount * 0.25F, 1.0F - blurAmount * 1.75F);

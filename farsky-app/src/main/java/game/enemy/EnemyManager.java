@@ -76,16 +76,16 @@ public final class EnemyManager {
       this.enemies.remove(index);
    }
 
-   /** Distance from a point to whichever player (local or peer) is closer. */
+   /** Distance from a point to whichever player (local or any peer) is closer. */
    private float distanceToNearestPlayer(Point point) {
       if (point == null) {
          return 0.0F;
       }
 
       float distance = point.distanceTo(Camera.getPosition());
-      game.net.RemotePlayer remote = game.net.NetSession.getRemotePlayer();
-      if (remote != null) {
-         distance = Math.min(distance, point.distanceTo(remote.getRenderPos()));
+      java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
+      for (int i = 0; i < remotes.size(); i++) {
+         distance = Math.min(distance, point.distanceTo(remotes.get(i).getRenderPos()));
       }
 
       return distance;

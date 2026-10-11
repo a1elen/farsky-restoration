@@ -97,13 +97,16 @@ public final class SeaLifeManager {
       this.spawnTimer = this.spawnTimer - SPAWN_INTERVAL;
       this.spawnAround(Camera.getPosition(), Camera.getYaw(), stage);
 
-      // The joined player gets a population around them too, so the client is
-      // never left swimming through an empty sea when the host is far away.
-      game.net.RemotePlayer peer = game.net.NetSession.getRemotePlayer();
-      if (peer != null && peer.getRenderPos().distanceTo(Camera.getPosition()) > ChunkManager.viewDistance) {
-         int peerStage = Loading.worldManager == null
-               ? 0 : Loading.worldManager.getStageAt(peer.getRenderPos().x, peer.getRenderPos().z);
-         this.spawnAround(peer.getRenderPos(), peer.getRenderYaw(), peerStage);
+      // Every connected player gets a population around them too, so nobody is
+      // left swimming through an empty sea when the others are far away.
+      java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
+      for (int i = 0; i < remotes.size(); i++) {
+         game.net.RemotePlayer peer = remotes.get(i);
+         if (peer.getRenderPos().distanceTo(Camera.getPosition()) > ChunkManager.viewDistance) {
+            int peerStage = Loading.worldManager == null
+                  ? 0 : Loading.worldManager.getStageAt(peer.getRenderPos().x, peer.getRenderPos().z);
+            this.spawnAround(peer.getRenderPos(), peer.getRenderYaw(), peerStage);
+         }
       }
    }
 

@@ -48,6 +48,10 @@ public abstract class Fish {
    /** True on the client: schooling AI is skipped, state comes from the host. */
    protected boolean remoteControlled = false;
    private Point netTargetPos = null;
+   /** Dead-reckoning: swim velocity estimated from two consecutive host samples. */
+   private Point netVel = null;
+   /** Seconds since the last host sample arrived; drives the extrapolation. */
+   private float netSampleAge = 0.0F;
    private float netTargetRotX = 0.0F;
    private float netTargetRotY = 0.0F;
    private boolean netRotValid = false;
@@ -73,14 +77,25 @@ public abstract class Fish {
    /** Applies one authoritative sample from the host: position and facing. */
    public final void applyNetState(float px, float py, float pz, float rotX, float rotY) {
       Point newPos = new Point(px, py, pz);
-      if (this.netTargetPos == null || this.position == null || this.position.distanceTo(newPos) > 400.0F) {
+      boolean snap = this.netTargetPos == null || this.position == null || this.position.distanceTo(newPos) > 400.0F;
+      if (snap) {
          this.netSnapPending = true;
+         this.netVel = null;
+      } else if (this.netSampleAge > 0.02F) {
+         // Two consecutive samples give the host-side swim velocity. netTick
+         // extrapolates along it, so the mirror glides at a constant speed
+         // between samples instead of pulsing once per sample (3Hz ticks).
+         this.netVel = new Point(
+            (px - this.netTargetPos.x) / this.netSampleAge,
+            (py - this.netTargetPos.y) / this.netSampleAge,
+            (pz - this.netTargetPos.z) / this.netSampleAge);
       }
 
       this.netTargetPos = newPos;
       this.netTargetRotX = rotX;
       this.netTargetRotY = rotY;
       this.netRotValid = true;
+      this.netSampleAge = 0.0F;
       if (this.prevDirection == null) {
          this.prevDirection = new Point(0.0F, 0.0F, 1.0F);
       }
@@ -101,15 +116,24 @@ public abstract class Fish {
          return;
       }
 
-      float k = (float)(1.0 - Math.exp(-8.0 * (double)delta));
+      this.netSampleAge = this.netSampleAge + delta;
+      // Dead-reckoning goal: the latest sample pushed forward along the
+      // estimated swim velocity (bounded, and cut off when samples stop, so a
+      // stalled sync can never fling the fish away).
+      Point goal = this.netTargetPos;
+      if (this.netVel != null && this.netSampleAge < 0.7F) {
+         goal = this.netTargetPos.plus(this.netVel.scaled(Math.min(this.netSampleAge, 0.5F)));
+      }
+
+      float k = (float)(1.0 - Math.exp(-6.0 * (double)delta));
       Point prev = this.position.copy();
       if (this.netSnapPending) {
          this.position.set(this.netTargetPos);
          this.netSnapPending = false;
       } else {
-         this.position.x += (this.netTargetPos.x - this.position.x) * k;
-         this.position.y += (this.netTargetPos.y - this.position.y) * k;
-         this.position.z += (this.netTargetPos.z - this.position.z) * k;
+         this.position.x += (goal.x - this.position.x) * k;
+         this.position.y += (goal.y - this.position.y) * k;
+         this.position.z += (goal.z - this.position.z) * k;
       }
 
       this.velocity = this.position.minus(prev);
@@ -239,9 +263,16 @@ public abstract class Fish {
          return false;
       }
 
-      // Keep fish that only the joined player can see: they are synced to them.
-      Point peer = game.net.NetSession.getRemoteAggroPos();
-      return peer == null || here.distanceTo(new Coord(peer.x, peer.z)) > limit;
+      // Keep fish that only another player can see: they are synced to them.
+      java.util.ArrayList<game.net.RemotePlayer> remotes = game.net.NetSession.getRemotePlayers();
+      for (int i = 0; i < remotes.size(); i++) {
+         Point peer = remotes.get(i).getRenderPos();
+         if (here.distanceTo(new Coord(peer.x, peer.z)) <= limit) {
+            return false;
+         }
+      }
+
+      return true;
    }
 
    public final void fleeFrom(Point source, boolean faster) {

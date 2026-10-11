@@ -65,6 +65,8 @@ public final class Avatar {
    public static String deathMessage = "";
    private Point placementTarget = null;
    private Item lastSelectedItem = null;
+   /** True while the hands were already emptied because the hotbar slot is empty. */
+   private boolean emptyHandSelection = false;
    private int hitCount = 0;
    private float walkAnimPhase = 0.0F;
    private boolean inSeafloorBase = false;
@@ -356,6 +358,15 @@ public final class Avatar {
                      GameScene.avatar.setWeaponHidden(true);
                   }
             }
+
+            this.emptyHandSelection = false;
+         } else if (!this.currentState.isNavigating() && !this.emptyHandSelection) {
+            // The selected hotbar slot is empty: the switch above only runs for a
+            // non-empty slot, so without this the hands kept rendering the item
+            // selected before (drill, knife, ...). Hide it once and let the arm
+            // fall back to the open-hand pose.
+            this.emptyHandSelection = true;
+            GameScene.avatar.setWeaponHidden(true);
          }
 
          this.placementTarget = null;
